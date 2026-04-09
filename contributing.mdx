@@ -1,0 +1,106 @@
+---
+title: "How to contribute to the Dev Container Specification"
+description: "Learn how to propose changes to the Dev Container Specification, submit PRs, follow formatting guidelines, and engage with the community."
+---
+
+The Dev Container Specification is an open, community-driven project and contributions of all kinds are welcome. Whether you want to propose a new property, add tool-specific customizations, or improve the reference documentation, this page walks you through the contribution process. You can also join the community on the [Dev Container Slack channel](https://aka.ms/dev-container-community).
+
+## Contribution approaches
+
+When you want to propose a change or addition to the spec, follow these steps:
+
+<Steps>
+  <Step title="Open an issue to propose the change">
+    Start a conversation in the [devcontainers/spec](https://github.com/devcontainers/spec/issues) repository. Describe what you want to add or change and gather early feedback before investing time in a formal write-up.
+  </Step>
+  <Step title="Document the proposed change">
+    Formalize your proposal by documenting properties and their semantics. Model your write-up after the [devcontainer.json reference](https://aka.ms/devcontainer.json). For example, a property table follows this format:
+
+    | Property | Type | Description |
+    |---|---|---|
+    | `image` | string | **Required** when using an image. The name of an image in a container registry ([Docker Hub](https://hub.docker.com), [GitHub Container Registry](https://docs.github.com/packages/guides/about-github-container-registry), [Azure Container Registry](https://azure.microsoft.com/services/container-registry/)) that VS Code and other `devcontainer.json`-supporting services and tools should use to create the dev container. |
+  </Step>
+  <Step title="Submit PRs to the schema and reference docs">
+    Open a PR to the [devcontainer schema](https://github.com/microsoft/vscode/blob/main/extensions/configuration-editing/schemas/devContainer.schema.src.json) with code or shell scripts that demonstrate your proposed implementation approach.
+
+    Once discussion on your proposal settles, open and link a separate PR to update the [devcontainer.json reference doc](https://aka.ms/devcontainer.json). When your proposal is merged, the docs stay in sync with the latest spec.
+  </Step>
+</Steps>
+
+## Contributing tool-specific support
+
+If you build a tool that implements the Dev Container Specification, you can add tool-specific properties under the `customizations` namespace in `devcontainer.json`. Each tool uses its own named key to avoid conflicts. For example, VS Code properties are nested under `customizations.vscode`:
+
+```json
+// Configure tool-specific properties.
+"customizations": {
+  // Configure properties specific to VS Code.
+  "vscode": {
+    // Set *default* container specific settings.json values on container create.
+    "settings": {},
+
+    // Additional VS Code specific properties...
+  }
+}
+```
+
+You can propose a new namespace for your tool and document its properties by following the contribution process above.
+
+## Formatting guidelines
+
+When contributing to the official spec docs or referencing dev containers in your own content, follow these conventions for consistent, professional documentation.
+
+<AccordionGroup>
+  <Accordion title="Spec name capitalization">
+    Always refer to the spec as the **Development Container Specification** — capitalize all words and use the singular "Container" rather than plural "Containers".
+  </Accordion>
+  <Accordion title="Dev container terminology">
+    The term "dev container" is lowercase on its own. Capitalize it only when it appears as part of an official tool title — for example, the **VS Code Dev Containers extension**.
+  </Accordion>
+  <Accordion title="File name formatting">
+    Always format `devcontainer.json` with backticks to signal that it is a file type, not a proper noun.
+  </Accordion>
+  <Accordion title="Features and Templates capitalization">
+    Always capitalize **Features** and **Templates** when referring to the spec concepts.
+  </Accordion>
+  <Accordion title="CLI name">
+    Refer to the command-line tool as the **Dev Container CLI** — capital D, C, and CLI.
+  </Accordion>
+  <Accordion title="Bold for emphasis">
+    Use bold sparingly for emphasis throughout a section rather than bolding the same terms every time they appear.
+  </Accordion>
+</AccordionGroup>
+
+## Review process
+
+The spec repository uses [labels](https://github.com/devcontainers/spec/labels) and [milestones](https://github.com/devcontainers/spec/milestones) to track proposal status.
+
+| Label | Meaning |
+|---|---|
+| `proposal` | Issues under active discussion that are still collecting feedback. |
+| `finalization` | Proposals the maintainers intend to include in the spec. |
+
+Milestones use a **month year** format (e.g., `January 2022`). When a finalized proposal is added to a milestone, it is intended to be merged during that milestone's window.
+
+## Community engagement
+
+There are several ways to connect with the dev container community beyond filing issues and pull requests.
+
+<CardGroup cols={2}>
+  <Card title="GitHub Discussions" icon="github" href="https://github.com/devcontainers/spec/discussions">
+    Ask questions, share ideas, and connect with maintainers without the formality of a spec issue or PR.
+  </Card>
+  <Card title="Community Slack" icon="slack" href="https://aka.ms/dev-container-community">
+    Chat with the community and maintainers in real time on the Dev Container Slack channel.
+  </Card>
+  <Card title="Dev Containers GitHub org" icon="code-branch" href="https://github.com/devcontainers">
+    Browse issues and PRs across all repos in the Dev Containers organization and contribute where you see fit.
+  </Card>
+  <Card title="Community collections" icon="layer-group" href="https://containers.dev/collections">
+    Publish your own Templates and Features to the community index so others can discover and reuse them.
+  </Card>
+</CardGroup>
+
+<Tip>
+You can contribute your own [Templates](/templates/distribution) and [Features](/features/distribution) to the community index at [containers.dev/collections](https://containers.dev/collections).
+</Tip>

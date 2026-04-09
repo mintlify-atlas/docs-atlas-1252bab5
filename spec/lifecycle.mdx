@@ -1,0 +1,199 @@
+---
+title: "Dev container lifecycle: from creation to teardown"
+description: "Understand how dev containers move through initialization, image creation, container creation, and post-creation stages with lifecycle scripts."
+---
+
+Every dev container follows a defined lifecycle from the moment you open a workspace through to when the environment is stopped or resumed. Understanding this sequence helps you place setup commands in the right hook, debug unexpected behaviour, and design configurations that work reliably across tools and cloud services. This page walks through each stage and explains which lifecycle scripts fire and when.
+
+## Lifecycle overview
+
+<Steps>
+  <Step title="Configuration validation">
+    The implementing tool locates and validates your `devcontainer.json` before any container work begins.
+  </Step>
+  <Step title="Initialization">
+    The `initializeCommand` runs on the **host machine** before any container is created or started.
+  </Step>
+  <Step title="Image creation">
+    The final container image is built or pulled based on your orchestration configuration.
+  </Step>
+  <Step title="Container creation">
+    Containers are created from the image, with mounts, environment variables, and user configuration applied.
+  </Step>
+  <Step title="Post-container creation">
+    `onCreateCommand`, `updateContentCommand`, and `postCreateCommand` run inside the container in sequence.
+  </Step>
+  <Step title="Implementation-specific steps">
+    The supporting tool completes its own setup — installing extensions, applying settings, and making the environment available.
+  </Step>
+  <Step title="Environment stop">
+    All containers are stopped cleanly according to the orchestrator.
+  </Step>
+  <Step title="Environment resume">
+    Stopped containers restart and `postStartCommand` and `postAttachCommand` run again.
+  </Step>
+</Steps>
+
+## Configuration validation
+
+Before anything else, the implementing tool validates that your configuration is complete and correct. For a `devcontainer.json`-based configuration, validation proceeds as follows:
+
+1. Confirm that a workspace source folder has been provided.
+2. Search for a `devcontainer.json` file in the [standard locations](/spec/devcontainer-json#file-locations).
+3. If no file is found, behaviour is tool-specific — the spec does not dictate a fallback.
+4. Confirm that all required properties for the selected configuration type are present.
+
+## Environment creation
+
+### Initialization
+
+During initialization, the tool validates access to the container orchestrator and then runs `initializeCommand` **on the host machine**. This command fires during container creation and again on each subsequent start.
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "initializeCommand": "echo 'Initializing on the host'"
+}
+```
+
+<Warning>
+  `initializeCommand` runs wherever the source code lives on the host. In cloud environments, that means it runs in the cloud, not on your local machine.
+</Warning>
+
+### Image creation
+
+The tool builds or pulls the final image based on your orchestration mode. This step is equivalent to running `docker pull`, `docker build`, or `docker compose build` depending on your configuration. Image creation is also the step that tools can expose independently — for example to pre-build and push images to a registry.
+
+Tasks performed:
+
+1. Run [configuration validation](#configuration-validation).
+2. Pull, build, or compose the image(s).
+3. Validate that the images were produced successfully.
+
+### Container creation
+
+After the image is ready, containers are created from it. This is when mounts, container environment variables (`containerEnv`), and container user (`containerUser`) are applied. Remote user and remote environment variables are **not** applied yet.
+
+Tasks performed:
+
+1. Optionally synchronise the container user's UID/GID with the local user (Linux only, when `updateRemoteUserUID` is `true` and `containerUser` or `remoteUser` is set).
+2. Create the container(s) with all specified properties.
+3. Validate that the container(s) started successfully.
+
+### Post-container creation
+
+Once the container is running for the first time, the following commands execute **inside** the container in sequence:
+
+| Command | When it runs | Notes |
+|---|---|---|
+| `onCreateCommand` | First container creation only | Cloud services may run this when prebuilding. No user-scoped secrets available. |
+| `updateContentCommand` | First creation, plus whenever source content changes during creation | Runs at least once. Cloud services may repeat it to refresh prebuilt containers. |
+| `postCreateCommand` | After `updateContentCommand`, once the container is assigned to a user | User-scoped secrets are available here. Runs by default in the background after creation is reported. |
+
+The `waitFor` property controls which command the tool waits for before reporting the environment as ready. It defaults to `updateContentCommand`, so `postCreateCommand` runs in the background unless you change this.
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "onCreateCommand": "apt-get update",
+  "updateContentCommand": "pip install -r requirements.txt",
+  "postCreateCommand": "npm install",
+  "waitFor": "postCreateCommand"
+}
+```
+
+Remote environment variables (from `remoteEnv`) and the remote user (from `remoteUser`) are applied to all processes created at this point, including `userEnvProbe` results.
+
+## Lifecycle script reference
+
+All lifecycle commands accept a `string`, `array`, or `object` value.
+
+- **String**: runs in `/bin/sh`, supports `&&` for chaining.
+- **Array**: passes arguments directly to the OS without a shell.
+- **Object**: runs each key-value pair in parallel (see [parallel execution](#parallel-execution)).
+
+| Property | Runs on | Trigger | Available context |
+|---|---|---|---|
+| `initializeCommand` | Host | Every creation and start | Host environment only |
+| `onCreateCommand` | Container | First creation | Repository and org secrets |
+| `updateContentCommand` | Container | First creation, content updates | Repository and org secrets |
+| `postCreateCommand` | Container | First creation, after user assignment | User secrets and permissions |
+| `postStartCommand` | Container | Every start (creation and resume) | Full runtime environment |
+| `postAttachCommand` | Container | Every tool attach | Full runtime environment |
+| `waitFor` | — | Controls blocking point | Defaults to `updateContentCommand` |
+
+<Note>
+  If a lifecycle script fails, subsequent scripts in the sequence do not run. For example, if `postCreateCommand` fails, `postStartCommand` will be skipped.
+</Note>
+
+### String, array, and object formats
+
+```json
+{
+  "postCreateCommand": "npm install && npm run build"
+}
+```
+
+```json
+{
+  "postCreateCommand": ["npm", "install"]
+}
+```
+
+```json
+{
+  "postCreateCommand": {
+    "install": "npm install",
+    "build": "npm run build"
+  }
+}
+```
+
+The string form uses a shell and supports operators like `&&`. The array form bypasses the shell and passes arguments directly to the executable. The object form runs each entry in parallel.
+
+## Parallel execution
+
+All lifecycle scripts support the object form for parallel execution. Each key is a unique name for the command and each value is a `string` or `array` command. Every entry must exit successfully for the stage to be considered complete.
+
+```json
+{
+  "postCreateCommand": {
+    "server": "npm install",
+    "db": ["mysql", "-u", "root", "-p", "mydb"]
+  }
+}
+```
+
+## Environment stop
+
+The tool stops all containers cleanly using the appropriate orchestrator-specific commands. When and how this happens is up to the implementing tool or service — the spec only requires that the shutdown preserves data and follows the orchestrator's stop semantics.
+
+## Environment resume
+
+Resuming a stopped environment is the most common scenario after the initial creation. To resume:
+
+1. Restart all related containers.
+2. Complete implementation-specific steps (extensions, settings, etc.).
+3. Run `postStartCommand` inside the container.
+4. Run `postAttachCommand` inside the container once the tool attaches.
+
+Remote environment variables and user configuration are applied to all new processes, just as they are during initial creation.
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "postStartCommand": "service postgresql start",
+  "postAttachCommand": "echo 'Attached to container'"
+}
+```
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="devcontainer.json format" icon="file-code" href="/spec/devcontainer-json">
+    Overview of all property categories and variable substitution.
+  </Card>
+  <Card title="Orchestration modes" icon="layer-group" href="/spec/orchestration">
+    Image, Dockerfile, and Docker Compose configurations explained.
+  </Card>
+</CardGroup>

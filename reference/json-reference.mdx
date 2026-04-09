@@ -1,0 +1,471 @@
+---
+title: "devcontainer.json: the complete property reference"
+description: "Complete reference for all devcontainer.json properties: general settings, image, Dockerfile, Docker Compose, lifecycle scripts, and port attributes."
+---
+
+The `devcontainer.json` file contains the metadata and settings required to configure a development container for a given tool and runtime stack. Supporting tools and services read this file to create a development environment that contains one or more development containers. Properties marked with a label icon can also be stored in the `devcontainer.metadata` container image label, allowing self-contained prebuilt images.
+
+## General properties
+
+These properties apply to any `devcontainer.json` configuration, regardless of whether you use an image, Dockerfile, or Docker Compose.
+
+<ParamField body="name" type="string">
+  A display name for the dev container shown in supporting tools and services.
+</ParamField>
+
+<ParamField body="forwardPorts" type="array">
+  An array of port numbers or `"host:port"` values (for example, `[3000, "db:5432"]`) that are always forwarded from inside the primary container to the local machine. Use this for ports that cannot be auto-forwarded because the related process starts before the supporting tool connects, or for forwarding a service in a Docker Compose scenario. Defaults to `[]`.
+
+  ```json
+  "forwardPorts": [3000, "db:5432"]
+  ```
+</ParamField>
+
+<ParamField body="portsAttributes" type="object">
+  Maps a port number, `"host:port"` value, range, or regular expression to a set of default options. See [Port attributes](#port-attributes) for available options.
+
+  ```json
+  "portsAttributes": {
+    "3000": { "label": "Application port" },
+    "40000-55000": { "onAutoForward": "ignore" }
+  }
+  ```
+</ParamField>
+
+<ParamField body="otherPortsAttributes" type="object">
+  Default options for ports, port ranges, and hosts not covered by `portsAttributes`. See [Port attributes](#port-attributes) for available options.
+
+  ```json
+  "otherPortsAttributes": { "onAutoForward": "silent" }
+  ```
+</ParamField>
+
+<ParamField body="containerEnv" type="object">
+  A set of name-value pairs that sets or overrides environment variables on the container itself. All processes spawned in the container inherit these variables, but you must rebuild the container to change them. Environment and [pre-defined variables](#variables-in-devcontainerjson) may be referenced in the values.
+
+  ```json
+  "containerEnv": {
+    "MY_VARIABLE": "${localEnv:MY_VARIABLE}"
+  }
+  ```
+
+  <Note>Use `containerEnv` over `remoteEnv` when possible — it makes the variable available to all processes and is not client-specific.</Note>
+</ParamField>
+
+<ParamField body="remoteEnv" type="object">
+  A set of name-value pairs that sets or overrides environment variables for the supporting tool or sub-processes (such as terminals), but not the container as a whole. Use this when the value is not static and you want to update it without rebuilding the container.
+
+  ```json
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:/usr/local/go/bin"
+  }
+  ```
+</ParamField>
+
+<ParamField body="remoteUser" type="string">
+  Overrides the user that the supporting tool runs as inside the container, including sub-processes like terminals, tasks, and debugging. This does not change the user the container as a whole runs as — use `containerUser` for that. Defaults to the container's running user (often `root`).
+</ParamField>
+
+<ParamField body="containerUser" type="string">
+  Overrides the user for all operations run inside the container. Defaults to either `root` or the last `USER` instruction in the Dockerfile used to create the image. To use a different user for connected tools or processes, use `remoteUser` instead.
+</ParamField>
+
+<ParamField body="updateRemoteUserUID" type="boolean" default="true">
+  On Linux, when `containerUser` or `remoteUser` is specified, updates the user's UID and GID to match the local user's UID and GID to avoid permission problems with bind mounts.
+</ParamField>
+
+<ParamField body="userEnvProbe" type="string" default="loginInteractiveShell">
+  The type of shell to use when probing for user environment variables. Accepted values are `none`, `interactiveShell`, `loginShell`, and `loginInteractiveShell`. The shell is based on the user's default shell (typically bash). Interactive shells include variables from `/etc/bash.bashrc` and `~/.bashrc`; login shells include variables from `/etc/profile` and `~/.profile`. The default `loginInteractiveShell` reads all four files.
+</ParamField>
+
+<ParamField body="overrideCommand" type="boolean">
+  When `true`, the supporting tool runs `/bin/sh -c "while sleep 1000; do :; done"` instead of the container's default command, preventing the container from shutting down if the default command fails. Defaults to `true` for image and Dockerfile configurations, and `false` for Docker Compose configurations.
+</ParamField>
+
+<ParamField body="shutdownAction" type="string">
+  Controls whether supporting tools stop containers when the tool window is closed. Accepted values are `none`, `stopContainer` (default for image or Dockerfile), and `stopCompose` (default for Docker Compose).
+</ParamField>
+
+<ParamField body="init" type="boolean" default="false">
+  When `true`, uses the [tini init process](https://github.com/krallin/tini) to help handle zombie processes. This is a cross-orchestrator setting.
+</ParamField>
+
+<ParamField body="privileged" type="boolean" default="false">
+  Runs the container in privileged mode (`--privileged`). Required for scenarios like Docker-in-Docker, but has security implications — especially when running directly on Linux.
+</ParamField>
+
+<ParamField body="capAdd" type="array" default="[]">
+  Cross-orchestrator way to add Linux capabilities typically disabled for a container. Most often used to add `ptrace` capability for debugging C++, Go, and Rust.
+
+  ```json
+  "capAdd": ["SYS_PTRACE"]
+  ```
+</ParamField>
+
+<ParamField body="securityOpt" type="array" default="[]">
+  Cross-orchestrator way to set container security options.
+
+  ```json
+  "securityOpt": ["seccomp=unconfined"]
+  ```
+</ParamField>
+
+<ParamField body="mounts" type="string or object">
+  Cross-orchestrator way to add additional mounts to a container. Each value accepts the same syntax as the Docker CLI `--mount` flag. Environment and pre-defined variables may be referenced in the values.
+
+  ```json
+  "mounts": [
+    {
+      "source": "dind-var-lib-docker",
+      "target": "/var/lib/docker",
+      "type": "volume"
+    }
+  ]
+  ```
+</ParamField>
+
+<ParamField body="features" type="object">
+  An object of [Dev Container Feature IDs](/features/overview) and their options to add into your primary container. The available options vary by Feature — see each Feature's documentation for details.
+
+  ```json
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" }
+  }
+  ```
+</ParamField>
+
+<ParamField body="overrideFeatureInstallOrder" type="array">
+  By default, Features automatically determine their install order using an `installsAfter` property. Use this property to override that order when needed.
+
+  ```json
+  "overrideFeatureInstallOrder": [
+    "ghcr.io/devcontainers/features/common-utils",
+    "ghcr.io/devcontainers/features/github-cli"
+  ]
+  ```
+</ParamField>
+
+<ParamField body="customizations" type="object">
+  Product-specific properties, defined by [supporting tools and services](/supporting-tools). Each tool uses a unique JSON object subproperty to group its customizations.
+
+  ```json
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint"]
+    }
+  }
+  ```
+</ParamField>
+
+---
+
+## Image or Dockerfile properties
+
+Use these properties when you start your dev container from a pre-built image or a local Dockerfile.
+
+<ParamField body="image" type="string" required>
+  The name of an image in a container registry (Docker Hub, GitHub Container Registry, Azure Container Registry) that the supporting tool uses to create the dev container. Required when using an image.
+
+  ```json
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu"
+  ```
+</ParamField>
+
+<ParamField body="build.dockerfile" type="string" required>
+  The location of a Dockerfile that defines the container contents. The path is relative to the `devcontainer.json` file. Required when using a Dockerfile.
+
+  ```json
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  }
+  ```
+</ParamField>
+
+<ParamField body="build.context" type="string" default=".">
+  The path from which the Docker build runs, relative to `devcontainer.json`. For example, `".."` allows you to reference content in sibling directories.
+</ParamField>
+
+<ParamField body="build.args" type="object">
+  Name-value pairs of [Docker image build arguments](https://docs.docker.com/engine/reference/commandline/build/#build-arg) passed when building a Dockerfile. Environment and pre-defined variables may be referenced in the values.
+
+  ```json
+  "build": {
+    "args": {
+      "MYARG": "MYVALUE",
+      "MYARGFROMENV": "${localEnv:VARIABLE_NAME}"
+    }
+  }
+  ```
+</ParamField>
+
+<ParamField body="build.options" type="array" default="[]">
+  An array of [Docker image build options](https://docs.docker.com/engine/reference/commandline/build/#options) passed to the build command.
+
+  ```json
+  "build": {
+    "options": ["--add-host=host.docker.internal:host-gateway"]
+  }
+  ```
+</ParamField>
+
+<ParamField body="build.target" type="string">
+  A [Docker multi-stage build target](https://docs.docker.com/engine/reference/commandline/build/#target) passed when building a Dockerfile.
+
+  ```json
+  "build": { "target": "development" }
+  ```
+</ParamField>
+
+<ParamField body="build.cacheFrom" type="string or array">
+  One or more images to use as caches when building the image. Passed to `docker build` with `--cache-from`.
+
+  ```json
+  "build": {
+    "cacheFrom": "ghcr.io/my-org/my-image:latest"
+  }
+  ```
+</ParamField>
+
+<ParamField body="appPort" type="integer, string, or array">
+  A port or array of ports to publish locally when the container is running. In most cases, prefer `forwardPorts` — with `appPort`, your application may need to listen on all interfaces (`0.0.0.0`) rather than only `localhost`. Defaults to `[]`.
+
+  <Tip>Use `forwardPorts` instead of `appPort` for most use cases. Published ports behave like local network ports, while forwarded ports appear as `localhost` to the application.</Tip>
+</ParamField>
+
+<ParamField body="workspaceMount" type="string">
+  Overrides the default local mount point for the workspace when the container is created. Requires `workspaceFolder` to also be set. Supports the same values as the Docker CLI `--mount` flag.
+
+  ```json
+  "workspaceMount": "source=${localWorkspaceFolder}/sub-folder,target=/workspace,type=bind,consistency=cached",
+  "workspaceFolder": "/workspace"
+  ```
+</ParamField>
+
+<ParamField body="workspaceFolder" type="string">
+  Sets the default path that supporting tools open when connecting to the container. Requires `workspaceMount` to be set. Defaults to the automatic source code mount location.
+</ParamField>
+
+<ParamField body="runArgs" type="array" default="[]">
+  An array of [Docker CLI arguments](https://docs.docker.com/engine/reference/commandline/run/) passed when running the container.
+
+  ```json
+  "runArgs": ["--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined"]
+  ```
+</ParamField>
+
+---
+
+## Docker Compose properties
+
+Use these properties when your dev container is part of a multi-container Docker Compose setup.
+
+<ParamField body="dockerComposeFile" type="string or array" required>
+  Path or ordered list of paths to Docker Compose files, relative to the `devcontainer.json` file. When using an array, later files can override values set in earlier ones. The default `.env` file is picked up from the project root; use `env_file` in your Compose file to specify an alternate location.
+
+  ```json
+  "dockerComposeFile": ["docker-compose.yml", "docker-compose.dev.yml"]
+  ```
+</ParamField>
+
+<ParamField body="service" type="string" required>
+  The name of the Docker Compose service that the supporting tool connects to once running. This is the primary container for your dev environment.
+</ParamField>
+
+<ParamField body="runServices" type="array">
+  An array of Docker Compose services to start alongside the primary service. These services are also stopped when you disconnect unless `shutdownAction` is `"none"`. Defaults to all services defined in the Compose file.
+
+  ```json
+  "runServices": ["app", "db", "cache"]
+  ```
+</ParamField>
+
+<ParamField body="workspaceFolder" type="string" default="/">
+  The default path that supporting tools open when connecting to the container. This is typically the target path of a volume mount defined in your `docker-compose.yml`.
+</ParamField>
+
+---
+
+## Lifecycle scripts
+
+Lifecycle scripts let you run commands at specific points in the container's lifecycle. Each property accepts a string, an array of strings, or an object for parallel execution. Scripts execute from the `workspaceFolder`.
+
+<Note>If a lifecycle script fails, subsequent scripts do not run. For example, if `postCreateCommand` fails, `postStartCommand` is skipped.</Note>
+
+<AccordionGroup>
+  <Accordion title="Script format: string, array, and object">
+    **String** — runs through `/bin/sh`. Use `&&` to chain commands:
+    ```json
+    "postCreateCommand": "apt-get update && apt-get install -y curl"
+    ```
+
+    **Array** — invoked directly without a shell:
+    ```json
+    "postCreateCommand": ["yarn", "install"]
+    ```
+
+    **Object** — runs named commands in parallel:
+    ```json
+    "postCreateCommand": {
+      "server": "npm start",
+      "db": ["mysql", "-u", "root", "-p", "mydb"]
+    }
+    ```
+
+    You can also run shell scripts from your source tree:
+    ```json
+    "postCreateCommand": "bash scripts/install-dev-tools.sh"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<ParamField body="initializeCommand" type="string, array, or object">
+  A command that runs on the **host machine** during initialization, including on container creation and subsequent starts. The command may run more than once in a given session.
+
+  <Warning>This command runs wherever the source code lives on the host — for cloud services, that is in the cloud, not on your local machine.</Warning>
+</ParamField>
+
+<ParamField body="onCreateCommand" type="string, array, or object">
+  The first of three commands (along with `updateContentCommand` and `postCreateCommand`) that finalize container setup. It runs inside the container immediately after it starts for the first time. Cloud services can use this command when caching or prebuilding a container — it will not have access to user-scoped secrets at that stage.
+</ParamField>
+
+<ParamField body="updateContentCommand" type="string, array, or object">
+  The second setup command, which runs after `onCreateCommand` whenever new content is available in the source tree during the creation process. It runs at least once, and cloud services periodically re-run it to refresh cached or prebuilt containers. Like `onCreateCommand`, it can only access repository and org-scoped secrets.
+</ParamField>
+
+<ParamField body="postCreateCommand" type="string, array, or object">
+  The third and final setup command, which runs after `updateContentCommand` once the dev container has been assigned to a user for the first time. Cloud services can use this command to access user-specific secrets and permissions.
+
+  ```json
+  "postCreateCommand": "npm install"
+  ```
+</ParamField>
+
+<ParamField body="postStartCommand" type="string, array, or object">
+  A command that runs each time the container is successfully started.
+
+  ```json
+  "postStartCommand": "git config --global core.autocrlf false"
+  ```
+</ParamField>
+
+<ParamField body="postAttachCommand" type="string, array, or object">
+  A command that runs each time a tool successfully attaches to the container.
+</ParamField>
+
+<ParamField body="waitFor" type="string" default="updateContentCommand">
+  The lifecycle command that the supporting tool waits for before connecting. Accepted values are `initializeCommand`, `onCreateCommand`, `updateContentCommand`, `postCreateCommand`, and `postStartCommand`. Use this to connect the tool while additional setup continues in the background.
+</ParamField>
+
+---
+
+## Minimum host requirements
+
+Use `hostRequirements` to declare the minimum CPU, memory, storage, and GPU your container needs. Cloud services can automatically select the best compute option available; other tools display a warning when requirements are not met.
+
+<ParamField body="hostRequirements.cpus" type="integer">
+  Minimum number of required CPUs, virtual CPUs, or cores.
+
+  ```json
+  "hostRequirements": { "cpus": 2 }
+  ```
+</ParamField>
+
+<ParamField body="hostRequirements.memory" type="string">
+  Minimum required RAM, expressed as a string with a `tb`, `gb`, `mb`, or `kb` suffix.
+
+  ```json
+  "hostRequirements": { "memory": "4gb" }
+  ```
+</ParamField>
+
+<ParamField body="hostRequirements.storage" type="string">
+  Minimum required disk space, expressed as a string with a `tb`, `gb`, `mb`, or `kb` suffix.
+
+  ```json
+  "hostRequirements": { "storage": "32gb" }
+  ```
+</ParamField>
+
+<ParamField body="hostRequirements.gpu" type="boolean, string, or object">
+  Indicates GPU requirements. Use `true` to require any GPU, `false` to indicate none is required, or `"optional"` to use a GPU when available. Pass an object to specify minimum GPU cores and memory.
+
+  ```json
+  "hostRequirements": {
+    "gpu": {
+      "cores": 1000,
+      "memory": "4gb"
+    }
+  }
+  ```
+</ParamField>
+
+---
+
+## Port attributes
+
+The `portsAttributes` and `otherPortsAttributes` properties accept objects with the following options. Use `portsAttributes` to target specific ports or port ranges, and `otherPortsAttributes` to set defaults for all remaining ports.
+
+<ParamField body="label" type="string">
+  Display name for the port in the ports view. Defaults to not set.
+</ParamField>
+
+<ParamField body="protocol" type="string">
+  Controls the protocol handling for a forwarded port. When not set, the port is treated as a raw TCP stream. Set to `https` to ignore SSL/TLS certificates on the container side and use the correct certificate for the forwarded URL (for example `https://*.githubpreview.dev`). If set to `http`, processing is the same as when not set.
+</ParamField>
+
+<ParamField body="onAutoForward" type="string" default="notify">
+  Controls what happens when a port is auto-forwarded after you connect to the container.
+
+  | Value | Behavior |
+  |---|---|
+  | `notify` | Shows a notification (default) |
+  | `openBrowser` | Opens the system's default browser |
+  | `openBrowserOnce` | Opens the browser once per session |
+  | `openPreview` | Opens an embedded preview browser |
+  | `silent` | Forwards the port silently |
+  | `ignore` | Does not auto-forward the port |
+</ParamField>
+
+<ParamField body="requireLocalPort" type="boolean" default="false">
+  When `true`, you are notified if the port cannot be forwarded to the same local port number. When `false`, the tool silently maps to an available port if the specified one is unavailable.
+</ParamField>
+
+<ParamField body="elevateIfNeeded" type="boolean" default="false">
+  When `true`, the supporting tool automatically requests elevated permissions when forwarding low-numbered privileged ports (such as 22, 80, or 443).
+</ParamField>
+
+---
+
+## Variables in devcontainer.json
+
+You can reference variables in most string values using the format `${variableName}`. The table below lists all available variables.
+
+| Variable | Applicable properties | Description |
+|---|---|---|
+| `${localEnv:VARIABLE_NAME}` | Any | Value of an environment variable on the host machine. Unset variables produce an empty string. Provide a fallback with `${localEnv:VARIABLE_NAME:default}`. |
+| `${containerEnv:VARIABLE_NAME}` | `remoteEnv` | Value of an environment variable inside the running container. Provide a fallback with `${containerEnv:VARIABLE_NAME:default}`. |
+| `${localWorkspaceFolder}` | Any | Absolute path of the local folder opened in the supporting tool (the folder containing `.devcontainer/devcontainer.json`). |
+| `${containerWorkspaceFolder}` | Any | The path where workspace files can be found inside the container. |
+| `${localWorkspaceFolderBasename}` | Any | Name (not full path) of the local folder opened in the supporting tool. |
+| `${containerWorkspaceFolderBasename}` | Any | Name (not full path) of the workspace folder inside the container. |
+| `${devcontainerId}` | Any | A stable, unique identifier for the dev container that persists across rebuilds. Supported in: `name`, `runArgs`, `initializeCommand`, `onCreateCommand`, `updateContentCommand`, `postCreateCommand`, `postStartCommand`, `postAttachCommand`, `workspaceFolder`, `workspaceMount`, `mounts`, `containerEnv`, `remoteEnv`, `containerUser`, `remoteUser`, and `customizations`. |
+
+**Examples:**
+
+```json
+// Reference your local HOME or USERPROFILE path
+"remoteEnv": {
+  "LOCAL_USER_PATH": "${localEnv:HOME}${localEnv:USERPROFILE}"
+}
+```
+
+```json
+// Extend the container's PATH
+"remoteEnv": {
+  "PATH": "${containerEnv:PATH}:/usr/local/go/bin"
+}
+```
+
+<Tip>On Linux and macOS, you can set local environment variables that the CLI picks up with: `echo 'export VARIABLE_NAME=my-value' >> ~/.zshenv`</Tip>

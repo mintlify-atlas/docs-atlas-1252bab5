@@ -1,97 +1,96 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Development Containers: reproducible dev environments"
+description: "Dev containers define your full development environment in code using devcontainer.json, so every developer works in an identical, reproducible setup."
 ---
 
-## Setting up
+Development Containers (dev containers) are a standard for defining reproducible development environments inside containers. By placing a `devcontainer.json` file in your repository, you and your team can spin up identical, fully-configured environments — locally or in the cloud — without "works on my machine" problems.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="What are dev containers?" icon="circle-info" href="/overview">
+    Learn what the Development Container Specification is and how it works.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Get started with the CLI" icon="terminal" href="/getting-started/cli">
+    Install the Dev Container CLI and run your first dev container in minutes.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="devcontainer.json reference" icon="file-code" href="/reference/json-reference">
+    Explore every property you can configure in your devcontainer.json file.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Dev Container Features" icon="puzzle-piece" href="/features/overview">
+    Add tools and runtimes to your container with shareable, reusable Features.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Why dev containers?
 
-Everything you need to create world-class documentation.
+Dev containers solve the challenge of inconsistent development environments. Instead of writing setup READMEs that become outdated, you encode your environment in a `devcontainer.json` file that any supporting tool can use to automatically create an identical container.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={3}>
+  <Card title="Reproducible environments" icon="clone">
+    Every developer gets the exact same tools, runtime versions, and configuration — no manual setup required.
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Works everywhere" icon="globe">
+    Supported by VS Code, GitHub Codespaces, JetBrains, and many more editors and cloud services.
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Extensible with Features" icon="puzzle-piece">
+    Add pre-built Features from the community registry or author your own shareable installation scripts.
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+</CardGroup>
 
-## Need inspiration?
+## Quick start
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Steps>
+  <Step title="Install the Dev Container CLI">
+    Install the reference implementation CLI via npm:
+    ```bash
+    npm install -g @devcontainers/cli
+    ```
+  </Step>
+  <Step title="Add a devcontainer.json to your project">
+    Create a `.devcontainer/devcontainer.json` file referencing a base image:
+    ```json .devcontainer/devcontainer.json
+    {
+      "name": "My Project",
+      "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+      "features": {
+        "ghcr.io/devcontainers/features/node:1": {}
+      },
+      "postCreateCommand": "npm install"
+    }
+    ```
+  </Step>
+  <Step title="Start the dev container">
+    Run the `up` command from your project folder:
+    ```bash
+    devcontainer up --workspace-folder .
+    ```
+  </Step>
+  <Step title="Execute commands inside the container">
+    Use `exec` to run commands in the running dev container:
+    ```bash
+    devcontainer exec --workspace-folder . npm test
+    ```
+  </Step>
+</Steps>
+
+## Explore the specification
+
+<CardGroup cols={2}>
+  <Card title="Specification overview" icon="book" href="/spec/devcontainer-json">
+    Understand the devcontainer.json format and all supported configuration options.
+  </Card>
+  <Card title="Container lifecycle" icon="rotate" href="/spec/lifecycle">
+    Learn how containers are created, started, and torn down, and how to hook into each stage.
+  </Card>
+  <Card title="Dev Container Features" icon="boxes-stacked" href="/features/overview">
+    Self-contained units of tooling you can add to any dev container with a single line.
+  </Card>
+  <Card title="Dev Container Templates" icon="copy" href="/templates/overview">
+    Pre-built starting points for common development environments, ready to apply to any project.
+  </Card>
+  <Card title="Supporting tools" icon="wrench" href="/supporting-tools">
+    See all the tools and cloud services that implement the Dev Container Specification.
+  </Card>
+  <Card title="Contributing to the spec" icon="code-pull-request" href="/contributing">
+    Learn how to propose changes, report issues, and get involved in the community.
+  </Card>
+</CardGroup>

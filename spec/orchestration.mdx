@@ -1,0 +1,231 @@
+---
+title: "Orchestration: image, Dockerfile, and Docker Compose"
+description: "Dev containers support three modes: referencing a container image, building from a Dockerfile, or using Docker Compose for multi-container environments."
+---
+
+The Dev Container Specification supports three orchestration modes: pulling a pre-built image, building an image from a Dockerfile, and using Docker Compose to manage multiple containers together. Each mode suits different project needs, and the one you choose determines which properties are required in your `devcontainer.json`. The spec is designed to enrich existing container formats rather than replace them, so each mode reuses familiar Docker tooling.
+
+## Image-based configuration
+
+The simplest mode references a container image that Docker can pull with `docker pull`. You supply the image name and optionally any additional configuration. No local build step is required.
+
+**Required property:** `image`
+
+```json
+{
+  "name": "Node.js project",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22"
+}
+```
+
+You can reference images from any registry — Docker Hub, GitHub Container Registry, Azure Container Registry, or a private registry accessible to your Docker daemon.
+
+```json
+{
+  "name": "Python project",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "forwardPorts": [8000],
+  "postCreateCommand": "pip install -r requirements.txt"
+}
+```
+
+<Tip>
+  Combine image-based configs with [Dev Container Features](/features/overview) to add tools on top of any base image without writing a Dockerfile.
+</Tip>
+
+### Image-specific properties
+
+| Property | Required | Description |
+|---|---|---|
+| `image` | Yes | Name of the container image to pull. |
+| `containerEnv` | No | Environment variables set on the container at creation. |
+| `containerUser` | No | User for all processes inside the container. |
+| `remoteUser` | No | User for lifecycle scripts and connected tools. |
+| `mounts` | No | Additional volume or bind mounts. |
+| `workspaceMount` | No | Override the default source code mount. Requires `workspaceFolder`. |
+| `workspaceFolder` | No | Default path to open inside the container. |
+| `runArgs` | No | Extra Docker CLI arguments passed to `docker run`. |
+
+## Dockerfile-based configuration
+
+When you need to customise the image — installing system packages, setting a base user, or copying files — you provide a Dockerfile and let the tool build it with `docker build`.
+
+**Required property:** `build.dockerfile`
+
+```json
+{
+  "name": "Custom Python environment",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  }
+}
+```
+
+The `Dockerfile` path is relative to the `devcontainer.json` file. The `build.context` path (also relative) sets the Docker build context and defaults to `"."`.
+
+### Build properties
+
+| Property | Required | Description |
+|---|---|---|
+| `build.dockerfile` | Yes | Relative path to the Dockerfile. |
+| `build.context` | No | Relative path for the build context. Defaults to `"."`. |
+| `build.args` | No | Name-value pairs of Docker build arguments (`--build-arg`). |
+| `build.target` | No | Multi-stage build target to stop at (`--target`). |
+| `build.cacheFrom` | No | One or more image references to use as build cache (`--cache-from`). |
+| `build.options` | No | Additional raw Docker build options as an array of strings. |
+
+### Dockerfile with build arguments
+
+```json
+{
+  "name": "Parameterised build",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "..",
+    "args": {
+      "NODE_VERSION": "20",
+      "USERNAME": "${localEnv:USER}"
+    },
+    "target": "development",
+    "cacheFrom": "ghcr.io/myorg/myimage:cache"
+  }
+}
+```
+
+The corresponding Dockerfile can consume these arguments:
+
+```dockerfile
+ARG NODE_VERSION=18
+ARG USERNAME=vscode
+FROM node:${NODE_VERSION}
+ARG USERNAME
+RUN useradd -m ${USERNAME}
+```
+
+<Note>
+  The `image` property is not used in Dockerfile mode. The image is produced by the build step, not pulled from a registry.
+</Note>
+
+### All image and Dockerfile properties
+
+Both image-based and Dockerfile-based configurations share these properties, in addition to the build-specific ones above.
+
+```json
+{
+  "name": "Full example",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "containerEnv": {
+    "APP_ENV": "development"
+  },
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:/workspace/bin"
+  },
+  "remoteUser": "vscode",
+  "containerUser": "vscode",
+  "mounts": [
+    {
+      "source": "node-modules",
+      "target": "/workspace/node_modules",
+      "type": "volume"
+    }
+  ],
+  "runArgs": ["--cap-add=SYS_PTRACE", "--security-opt", "seccomp=unconfined"],
+  "forwardPorts": [3000],
+  "postCreateCommand": "npm install"
+}
+```
+
+## Docker Compose-based configuration
+
+For applications that require multiple containers — a web server alongside a database, for example — use Docker Compose. The tool uses `docker compose` (V2) or `docker-compose` (V1) to create and manage all services defined in your Compose file. You declare which service is the primary development container, and the tool connects to it.
+
+**Required properties:** `dockerComposeFile`, `service`, `workspaceFolder`
+
+```json
+{
+  "name": "Full-stack app",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace"
+}
+```
+
+The Docker Compose file handles image or build configuration for each service. You do not use `image` or `build.dockerfile` in `devcontainer.json` when using Compose mode.
+
+### Docker Compose properties
+
+| Property | Required | Description |
+|---|---|---|
+| `dockerComposeFile` | Yes | Path or ordered array of paths to Docker Compose files. Later files override earlier ones. |
+| `service` | Yes | Name of the service to treat as the primary development container. |
+| `workspaceFolder` | Yes | Default path to open inside the primary container. |
+| `runServices` | No | Array of service names to start and stop with the environment. Defaults to all services. |
+| `shutdownAction` | No | What to do when the tool disconnects: `"none"` or `"stopCompose"` (default). |
+
+### Example with multiple Compose files and selective services
+
+```json
+{
+  "name": "Microservices dev environment",
+  "dockerComposeFile": ["docker-compose.yml", "docker-compose.override.yml"],
+  "service": "api",
+  "workspaceFolder": "/app",
+  "runServices": ["api", "db", "redis"],
+  "forwardPorts": [8080, "db:5432"],
+  "postCreateCommand": "npm install"
+}
+```
+
+The corresponding `docker-compose.yml` defines the services:
+
+```yaml
+services:
+  api:
+    build: ./api
+    volumes:
+      - .:/app
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: devpassword
+  redis:
+    image: redis:7
+```
+
+<Note>
+  Port forwarding with Docker Compose can reference services by name, for example `"db:5432"` forwards port 5432 from the `db` service to your local machine.
+</Note>
+
+<Warning>
+  The `image` and `build.dockerfile` properties are not used in Docker Compose mode. Image and build configuration belongs in the Compose file itself.
+</Warning>
+
+## Choosing a mode
+
+<CardGroup cols={3}>
+  <Card title="Image" icon="box">
+    Use when a published image already meets your needs. Add Features to extend it without a Dockerfile.
+  </Card>
+  <Card title="Dockerfile" icon="file-code">
+    Use when you need to customise the image — installing packages, setting users, or copying files.
+  </Card>
+  <Card title="Docker Compose" icon="network-wired">
+    Use when your project needs multiple containers running together, such as an app server and a database.
+  </Card>
+</CardGroup>
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="devcontainer.json format" icon="file-code" href="/spec/devcontainer-json">
+    Full overview of all property categories.
+  </Card>
+  <Card title="Image metadata labels" icon="tag" href="/spec/image-metadata">
+    Store dev container config inside pre-built images.
+  </Card>
+</CardGroup>

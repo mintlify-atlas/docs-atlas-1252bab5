@@ -1,0 +1,231 @@
+---
+title: "Dev Container CLI: complete command reference guide"
+description: "Reference for all Dev Container CLI commands: up, build, exec, run-user-commands, read-configuration, features, and templates subcommands."
+---
+
+The Dev Container CLI is the reference implementation of the Dev Container Specification. Tools like VS Code and GitHub Codespaces use this CLI internally to create and configure dev containers from a `devcontainer.json` file. You can also run it directly from your terminal or integrate it into CI pipelines and custom tooling.
+
+## Installation
+
+Install the CLI globally via npm. You need Python, Node.js (version 14 or later), and a C/C++ compiler to build one of the CLI's native dependencies.
+
+```bash
+npm install -g @devcontainers/cli
+```
+
+Verify the installation:
+
+```bash
+devcontainer --version
+```
+
+You should see the CLI print its version number. Run `devcontainer --help` at any time to see the available commands.
+
+---
+
+## Commands
+
+### `devcontainer up`
+
+Creates and starts a dev container from a `devcontainer.json` file. If the image does not exist locally, it is built or pulled first. The command returns a JSON object with the outcome and container ID.
+
+```bash
+devcontainer up --workspace-folder <path>
+```
+
+**Example** — start the dev container for the current directory:
+
+```bash
+devcontainer up --workspace-folder .
+```
+
+**Example output:**
+
+```json
+{
+  "outcome": "success",
+  "containerId": "f0a055ff056c1c1bb99cc09930efbf3a0437c54d9b4644695aa23c1d57b4bd11",
+  "remoteUser": "vscode",
+  "remoteWorkspaceFolder": "/workspaces/my-project"
+}
+```
+
+<Tip>Use `devcontainer up` in CI to validate that your dev container configuration is correct and that the container starts successfully.</Tip>
+
+---
+
+### `devcontainer build [path]`
+
+Builds a dev container image without starting a container. You can optionally push the built image to a container registry. Pre-building images results in faster container startup, simpler configuration, and lets you pin to specific versions of tools to improve supply-chain security.
+
+```bash
+devcontainer build --workspace-folder <path> [options]
+```
+
+**Key flags:**
+
+<ParamField body="--workspace-folder" type="string" required>
+  Path to the folder containing `.devcontainer/devcontainer.json`.
+</ParamField>
+
+<ParamField body="--image-name" type="string">
+  Name (and optional tag) to assign to the built image. For example: `my-registry/my-image:1.0`.
+</ParamField>
+
+<ParamField body="--push" type="boolean">
+  When `true`, pushes the built image to the specified registry after building.
+</ParamField>
+
+**Example** — build and push a prebuilt image:
+
+```bash
+devcontainer build \
+  --workspace-folder . \
+  --push true \
+  --image-name ghcr.io/my-org/my-devcontainer:latest
+```
+
+After pushing, reference the prebuilt image in `devcontainer.json` to skip the build step entirely:
+
+```json
+{
+  "image": "ghcr.io/my-org/my-devcontainer:latest"
+}
+```
+
+<Note>The CLI automatically adds a `devcontainer.metadata` label to prebuilt images. This label embeds the `devcontainer.json` settings so they are automatically picked up when the image is referenced — keeping your config and image contents in sync.</Note>
+
+---
+
+### `devcontainer exec <cmd> [args..]`
+
+Executes a command inside a running dev container. The container must already be running (started with `devcontainer up`).
+
+```bash
+devcontainer exec --workspace-folder <path> <cmd> [args..]
+```
+
+**Example** — run tests inside the container:
+
+```bash
+devcontainer exec --workspace-folder . npm test
+```
+
+**Example** — compile and run a Rust project:
+
+```bash
+devcontainer exec --workspace-folder . cargo run
+```
+
+**Example output:**
+
+```bash
+[33 ms] dev-containers-cli 0.1.0.
+   Compiling hello_remote_world v0.1.0 (/workspaces/vscode-remote-try-rust)
+    Finished dev [unoptimized + debuginfo] target(s) in 1.06s
+     Running `target/debug/hello_remote_world`
+Hello, VS Code Remote - Containers!
+{"outcome":"success"}
+```
+
+---
+
+### `devcontainer run-user-commands`
+
+Runs the user-facing lifecycle commands (`onCreateCommand`, `updateContentCommand`, `postCreateCommand`, `postStartCommand`, and `postAttachCommand`) for a dev container. This is primarily useful when you want to re-run setup steps without rebuilding the full container.
+
+```bash
+devcontainer run-user-commands --workspace-folder <path>
+```
+
+---
+
+### `devcontainer read-configuration`
+
+Reads and resolves the dev container configuration for a given workspace folder, merging `devcontainer.json` with any image label metadata. The output is a fully resolved JSON configuration object, which is useful for debugging or for tools that need to inspect the effective configuration.
+
+```bash
+devcontainer read-configuration --workspace-folder <path>
+```
+
+**Example:**
+
+```bash
+devcontainer read-configuration --workspace-folder .
+```
+
+---
+
+### `devcontainer features`
+
+Subcommands for working with Dev Container Features. Features are self-contained units of tooling that you can add to any dev container.
+
+```bash
+devcontainer features <subcommand>
+```
+
+Run `devcontainer features --help` to see all available subcommands, which include operations for publishing, testing, and inspecting Features.
+
+<CardGroup cols={2}>
+  <Card title="Features overview" icon="puzzle-piece" href="/features/overview">
+    Learn what Features are and how to use them in your dev container.
+  </Card>
+  <Card title="Authoring Features" icon="pen-to-square" href="/features/authoring">
+    Create and publish your own reusable Dev Container Features.
+  </Card>
+</CardGroup>
+
+---
+
+### `devcontainer templates`
+
+Subcommands for working with Dev Container Templates. Templates are pre-built starting points for common development environments.
+
+```bash
+devcontainer templates <subcommand>
+```
+
+Run `devcontainer templates --help` to see all available subcommands, which include operations for applying and publishing Templates.
+
+<CardGroup cols={2}>
+  <Card title="Templates overview" icon="copy" href="/templates/overview">
+    Discover available Templates and apply them to your project.
+  </Card>
+  <Card title="Templates distribution" icon="arrow-up-from-bracket" href="/templates/distribution">
+    Learn how Templates are packaged and distributed via OCI registries.
+  </Card>
+</CardGroup>
+
+---
+
+## Full command reference
+
+The CLI prints its full help text when you run `devcontainer --help`:
+
+```text
+devcontainer <command>
+
+Commands:
+  devcontainer up                   Create and run dev container
+  devcontainer build [path]         Build a dev container image
+  devcontainer run-user-commands    Run user commands
+  devcontainer read-configuration   Read configuration
+  devcontainer features             Features commands
+  devcontainer templates            Templates commands
+  devcontainer exec <cmd> [args..]  Execute a command on a running dev container
+
+Options:
+  --help     Show help                                                 [boolean]
+  --version  Show version number                                       [boolean]
+```
+
+## Networking and firewalls
+
+If you are behind a firewall, allow outbound traffic to the following domains for the CLI to work correctly:
+
+- `containers.dev` — the dev containers homepage, including the official Features and Templates registries
+- `ghcr.io`, `*.azurecr.io`, `mcr.microsoft.com` — OCI registries used to distribute Features, Templates, and base images
+
+## Source code
+
+The CLI is open source and available at [github.com/devcontainers/cli](https://github.com/devcontainers/cli). You can build it from source or integrate it into your own tooling as a library.

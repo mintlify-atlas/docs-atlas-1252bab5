@@ -1,0 +1,276 @@
+---
+title: "Dev Container Templates: pre-built environment starters"
+description: "Dev Container Templates are packaged devcontainer.json configurations for common environments. Apply them to new or existing projects with one command."
+---
+
+Dev Container Templates are source files packaged together that encode a complete development environment configuration. A supporting tool reads the Template and builds a dev container from it — letting you start a new project or containerize an existing one without writing configuration from scratch.
+
+<CardGroup cols={2}>
+  <Card title="New projects" icon="folder-plus">
+    Bootstrap a project with a ready-to-use dev container: language runtime, tools, and settings pre-configured.
+  </Card>
+  <Card title="Existing projects" icon="folder-open">
+    Drop a Template into any existing folder to add a dev container without disrupting your source files.
+  </Card>
+</CardGroup>
+
+## Folder structure
+
+A single Template lives in its own folder. At minimum it contains a `devcontainer-template.json` metadata file and a `.devcontainer.json` configuration file. You can include any additional files — Dockerfiles, docker-compose files, lifecycle scripts, or boilerplate code — and they will be packaged alongside the required files.
+
+```text
+template/
+├── devcontainer-template.json
+├── .devcontainer.json
+└── (other files)
+```
+
+When your container setup needs to reference additional files such as a `Dockerfile` or `docker-compose.yml`, use a nested `.devcontainer/` folder instead:
+
+```text
+template/
+├── devcontainer-template.json
+└── .devcontainer/
+    ├── devcontainer.json
+    ├── Dockerfile
+    └── docker-compose.yml
+```
+
+## `devcontainer-template.json` properties
+
+The `devcontainer-template.json` file defines metadata about the Template. Supporting tools use this information to display, apply, and configure Templates.
+
+<ResponseField name="id" type="string" required>
+  Unique identifier for the Template within its repository or published package. Must match the name of the directory where `devcontainer-template.json` resides.
+</ResponseField>
+
+<ResponseField name="version" type="string" required>
+  Semantic version of the Template (e.g. `1.2.3`).
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Human-readable display name of the Template.
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Short description of what the Template provides.
+</ResponseField>
+
+<ResponseField name="documentationURL" type="string">
+  URL pointing to the Template's documentation.
+</ResponseField>
+
+<ResponseField name="licenseURL" type="string">
+  URL pointing to the Template's license.
+</ResponseField>
+
+<ResponseField name="options" type="object">
+  A map of option IDs to their configuration. Supporting tools use options to prompt the user for choices, then substitute the selected values into the Template files before applying them. See [the `options` property](#the-options-property) below.
+</ResponseField>
+
+<ResponseField name="platforms" type="array">
+  Languages and platforms supported by the Template (e.g. `["Java", "Maven"]`).
+</ResponseField>
+
+<ResponseField name="publisher" type="string">
+  Name of the publisher or maintainer.
+</ResponseField>
+
+<ResponseField name="keywords" type="array">
+  Search terms that help users discover the Template.
+</ResponseField>
+
+<ResponseField name="optionalPaths" type="array">
+  Files or directories that tooling may offer to exclude when applying the Template. See [the `optionalPaths` property](#the-optionalpaths-property) below.
+</ResponseField>
+
+## The `options` property
+
+The `options` property is a map of option IDs to configuration objects. Before applying a Template, a supporting tool reads each option, prompts the user to select a value, and then replaces every occurrence of `${templateOption:<optionId>}` in the Template files with the chosen value.
+
+```json
+{
+  "options": {
+    "optionId": {
+      "type": "string",
+      "description": "Description of the option",
+      "proposals": ["value1", "value2"],
+      "default": "value1"
+    }
+  }
+}
+```
+
+<Note>
+  Option IDs must be unique within a `devcontainer-template.json` file.
+</Note>
+
+Each option entry supports the following fields:
+
+<ResponseField name="type" type="string" required>
+  Data type of the option. Valid values are `"string"` and `"boolean"`.
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Label shown to the user when the tool prompts for this option.
+</ResponseField>
+
+<ResponseField name="proposals" type="array">
+  A list of suggested string values. Free-form input is allowed. Omit when using `enum`.
+</ResponseField>
+
+<ResponseField name="enum" type="array">
+  A strict list of allowed string values. Free-form input is not allowed. Omit when using `proposals`.
+</ResponseField>
+
+<ResponseField name="default" type="string">
+  Value used if the user does not make a selection.
+</ResponseField>
+
+## The `optionalPaths` property
+
+When a Template includes files or directories that not every project will need, list them in `optionalPaths`. Before applying the Template, tooling must inspect this property and prompt the user on whether to include each listed path. Paths are relative to the root of the Template source directory.
+
+- **Single file:** provide the full relative path with no leading or trailing delimiters.
+- **Directory:** append `/*` to the path. The directory and all its children are recursively excluded if the user declines.
+
+```jsonc
+{
+  "id": "cpp",
+  "version": "3.0.0",
+  "name": "C++",
+  "description": "Develop C++ applications",
+  "optionalPaths": [
+    "GETTING-STARTED.md",                  // single file
+    "example-project-1/MyProject.csproj",  // file in nested directory
+    ".github/*"                            // entire directory, recursively
+  ]
+}
+```
+
+## Referencing a Template
+
+You reference a Template using an OCI registry path in the format:
+
+```text
+<oci-registry>/<namespace>/<template>[:<semantic-version>]
+```
+
+The registry must implement the [OCI Artifact Distribution Specification](https://github.com/opencontainers/distribution-spec). Examples using the GitHub Container Registry:
+
+```text
+ghcr.io/user/repo/go
+ghcr.io/user/repo/go:1
+ghcr.io/user/repo/go:latest
+```
+
+<Tip>
+  Omitting the version tag resolves to `latest`. Pin to a major or minor version (e.g. `:1` or `:1.2`) to get compatible updates while avoiding breaking changes.
+</Tip>
+
+## Option resolution
+
+When you apply a Template, the supporting tool substitutes your chosen option values into every file in the Template's sub-directory before dropping those files into your project. The substitution uses the placeholder syntax `${templateOption:<optionId>}`.
+
+### Example: Java Template
+
+Consider a `java` Template with the following structure:
+
+```text
+java/
+├── devcontainer-template.json
+└── .devcontainer.json
+```
+
+The `devcontainer-template.json` declares three options:
+
+```json
+{
+  "options": {
+    "imageVariant": {
+      "type": "string",
+      "description": "Specify version of java.",
+      "proposals": [
+        "17-bullseye",
+        "17-buster",
+        "11-bullseye",
+        "11-buster",
+        "17",
+        "11"
+      ],
+      "default": "17-bullseye"
+    },
+    "nodeVersion": {
+      "type": "string",
+      "description": "Specify version of node, or 'none' to skip node installation.",
+      "proposals": ["latest", "16", "14", "10", "none"],
+      "default": "latest"
+    },
+    "installMaven": {
+      "type": "boolean",
+      "description": "Install Maven, a management tool for Java.",
+      "default": "false"
+    }
+  }
+}
+```
+
+The `.devcontainer.json` file uses placeholders to reference those options:
+
+```json
+{
+  "name": "Java",
+  "image": "mcr.microsoft.com/devcontainers/java:0-${templateOption:imageVariant}",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "${templateOption:nodeVersion}",
+      "installMaven": "${templateOption:installMaven}"
+    }
+  }
+}
+```
+
+A user selects `17-bullseye` for `imageVariant` and accepts the defaults for the other options. The tool resolves the inputs:
+
+```json
+{
+  "imageVariant": "17-bullseye",
+  "nodeVersion": "latest",
+  "installMaven": "false"
+}
+```
+
+And writes the final `.devcontainer.json` into your project:
+
+```json
+{
+  "name": "Java",
+  "image": "mcr.microsoft.com/devcontainers/java:0-17-bullseye",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "latest",
+      "installMaven": "false"
+    }
+  }
+}
+```
+
+## Versioning
+
+Each Template is versioned independently using [semantic versioning](https://semver.org/). You update the `version` field in `devcontainer-template.json` to release a new version.
+
+<CardGroup cols={3}>
+  <Card title="Patch releases" icon="wrench">
+    Bug fixes and non-breaking changes. Tooling republishes under the same major and minor tags.
+  </Card>
+  <Card title="Minor releases" icon="circle-plus">
+    Backwards-compatible additions. Tooling republishes the major version tag.
+  </Card>
+  <Card title="Major releases" icon="triangle-exclamation">
+    Breaking changes. Tooling publishes a new major version tag. Pin to a major version to control when you adopt breaking changes.
+  </Card>
+</CardGroup>
+
+<Note>
+  Tooling will not republish a Template if that exact version has already been published. It will, however, update major and minor version tags to point to the latest compatible release.
+</Note>

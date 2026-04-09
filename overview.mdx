@@ -1,0 +1,117 @@
+---
+title: "Overview of the Development Container Specification"
+description: "Learn how the Dev Container Spec enriches container formats with development metadata, supporting single containers and Docker Compose setups."
+---
+
+As containerizing production workloads becomes commonplace, more developers are using containers for scenarios beyond deployment — including continuous integration, test automation, and full-featured coding environments. The Development Container Specification (Dev Container Spec) addresses this by enriching existing container formats with metadata for development-specific settings, tools, and configuration, rather than replacing them with yet another orchestrator format.
+
+## A structured metadata format
+
+Like the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) before it, the primary format in the specification — `devcontainer.json` — was born out of necessity. It is a structured JSON with Comments (JSONC) file that tools use to store any configuration required to develop inside local or cloud-based containerized environments.
+
+The spec also supports storing dev container metadata in [image labels](/spec/image-metadata) and in reusable chunks of metadata and install scripts called [Dev Container Features](/features/overview). This means the same structured data can be embedded in multiple formats while retaining a common object model for consistent processing.
+
+### Where to place devcontainer.json
+
+Supporting tools search for a `devcontainer.json` file in the following locations, in order of precedence:
+
+- `.devcontainer/devcontainer.json`
+- `.devcontainer.json`
+- `.devcontainer/<folder>/devcontainer.json` (where `<folder>` is a sub-folder, one level deep)
+
+It is valid for these files to exist in more than one location, so tools should provide a mechanism for users to select one when appropriate.
+
+## Development vs. production containers
+
+A development container defines an environment in which you develop your application before you are ready to deploy. While deployment and development containers may resemble one another, you may not want to include development tools in a production image, and you may need to use different secrets or environment settings.
+
+<Tip>
+  Think of your `devcontainer.json` as the companion to your `Dockerfile` or Docker Compose file — it adds the layer of development-specific configuration that your production image intentionally omits.
+</Tip>
+
+The spec recognizes this distinction and allows you to maintain separate concerns: your production image stays lean while your dev container carries the full set of tools, extensions, and runtime configuration your team needs.
+
+## Build and test
+
+Beyond repeatable local setup, dev containers provide consistency across developers and centralized build and test automation services. The open-source [CLI reference implementation](https://github.com/devcontainers/cli) can be used directly or integrated into product experiences to use the structured metadata to deliver these benefits. It currently supports both a simplified single-container option and integration with [Docker Compose](https://docs.docker.com/compose/) for multi-container scenarios.
+
+A GitHub Action and an Azure DevOps Task are available in [devcontainers/ci](https://github.com/devcontainers/ci) for running a repository's dev container in CI builds. This lets you reuse the same setup you use for local development to also build and test your code in CI.
+
+## Orchestration options
+
+A core principle of the spec is to enrich existing container orchestrator formats rather than replace them. The metadata schema includes optional properties for interoperating with different orchestrators. Today, the spec supports three configuration approaches:
+
+<AccordionGroup>
+  <Accordion title="Image-based" icon="box" defaultOpen={true}>
+    Image-based configurations reference a container image that Docker can pull directly. The only required property is `image`.
+
+    ```json .devcontainer/devcontainer.json
+    {
+      "image": "mcr.microsoft.com/devcontainers/go:1"
+    }
+    ```
+
+    Any dev container metadata stored in the image's labels is automatically picked up and merged with the local `devcontainer.json` at container creation time.
+  </Accordion>
+  <Accordion title="Dockerfile-based" icon="file-code">
+    Dockerfile-based configurations use a Dockerfile to define the starting point of the dev container. The only required property is `build.dockerfile`.
+
+    ```json .devcontainer/devcontainer.json
+    {
+      "name": "My Project",
+      "build": {
+        "dockerfile": "Dockerfile",
+        "context": "..",
+        "args": { "VARIANT": "bullseye" }
+      }
+    }
+    ```
+
+    Additional build properties — `build.context`, `build.args`, `build.target`, and `build.cacheFrom` — let you control how `docker build` behaves.
+  </Accordion>
+  <Accordion title="Docker Compose-based" icon="layer-group">
+    Docker Compose configurations use `docker-compose` to create and manage a set of containers. The required properties are `dockerComposeFile` and `service`.
+
+    ```json .devcontainer/devcontainer.json
+    {
+      "name": "My App",
+      "dockerComposeFile": "docker-compose.yml",
+      "service": "app",
+      "workspaceFolder": "/workspaces/my-app"
+    }
+    ```
+
+    The `service` property declares the main container used for development. The optional `runServices` property controls which services in the Compose file start and stop with the environment.
+  </Accordion>
+</AccordionGroup>
+
+## Dev Container Features
+
+Development container Features are self-contained, shareable units of installation code and dev container configuration. Referencing a Feature lets you quickly add tools, runtimes, or libraries to your dev container without writing custom Dockerfile instructions.
+
+Features are applied to container images as a secondary build step:
+
+```json .devcontainer/devcontainer.json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  }
+}
+```
+
+See the [Features documentation](/features/overview) for how to use and author Features.
+
+## Supporting tools
+
+The Dev Container Specification is implemented by a growing ecosystem of editors, cloud services, and CI systems. Tools that implement the spec read your `devcontainer.json` and handle building, starting, and connecting to your container automatically.
+
+<CardGroup cols={2}>
+  <Card title="Get started with the CLI" icon="terminal" href="/getting-started/cli">
+    Install the open-source reference implementation CLI and run your first dev container.
+  </Card>
+  <Card title="Supporting tools" icon="wrench" href="/supporting-tools">
+    Browse all editors, cloud platforms, and CI services that support the spec.
+  </Card>
+</CardGroup>

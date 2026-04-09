@@ -1,0 +1,213 @@
+---
+title: "devcontainer.json JSON Schema: base and main schemas"
+description: "Reference for the devcontainer.json base schema and main schema, including links to the canonical JSON Schema files in the devcontainers/spec repository."
+---
+
+The Dev Container Specification maintains two JSON Schema files in the [devcontainers/spec](https://github.com/devcontainers/spec) repository. You can point your editor at these schemas to get validation and autocompletion when editing `devcontainer.json` files, and any compliant tooling reads them to understand which properties are valid.
+
+## Schema files
+
+<CardGroup cols={2}>
+  <Card title="Base schema" icon="file-code" href="https://github.com/devcontainers/spec/blob/main/schemas/devContainer.base.schema.json">
+    Describes all base properties documented in this reference. Use this when you want schema support for the core specification.
+  </Card>
+  <Card title="Main schema" icon="file-code" href="https://github.com/devcontainers/spec/blob/main/schemas/devContainer.schema.json">
+    References the base schema and adds all schemas containing tool-specific properties (such as VS Code and Codespaces extensions).
+  </Card>
+</CardGroup>
+
+## Schema structure
+
+The base schema is a JSON Schema draft-07 document. It is organized into several named `definitions` that compose together using `oneOf` and `allOf` to validate the three supported container creation strategies.
+
+<AccordionGroup>
+  <Accordion title="devContainerCommon">
+    Contains properties shared by all configurations regardless of orchestration strategy. This includes lifecycle scripts, environment variables, user settings, Features, port forwarding, and host requirements.
+
+    Key properties defined here: `name`, `features`, `overrideFeatureInstallOrder`, `forwardPorts`, `portsAttributes`, `otherPortsAttributes`, `remoteEnv`, `remoteUser`, `initializeCommand`, `onCreateCommand`, `updateContentCommand`, `postCreateCommand`, `postStartCommand`, `postAttachCommand`, `waitFor`, `userEnvProbe`, `hostRequirements`, and `customizations`.
+
+    ```json
+    "devContainerCommon": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "A name for the dev container which can be displayed to the user."
+        },
+        "features": {
+          "type": "object",
+          "description": "Features to add to the dev container.",
+          "additionalProperties": true
+        },
+        "forwardPorts": {
+          "type": "array",
+          "description": "Ports that are forwarded from the container to the local machine.",
+          "items": {
+            "oneOf": [
+              { "type": "integer", "maximum": 65535, "minimum": 0 },
+              { "type": "string", "pattern": "^([a-z0-9-]+):(\\d{1,5})$" }
+            ]
+          }
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="nonComposeBase">
+    Contains properties specific to single-container (image or Dockerfile) configurations. These properties are not available in Docker Compose configurations.
+
+    Key properties: `appPort`, `containerEnv`, `containerUser`, `mounts`, `runArgs`, `shutdownAction`, `overrideCommand`, `workspaceFolder`, and `workspaceMount`.
+
+    ```json
+    "nonComposeBase": {
+      "type": "object",
+      "properties": {
+        "containerEnv": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Container environment variables."
+        },
+        "mounts": {
+          "type": "array",
+          "description": "Mount points to set up when creating the container.",
+          "items": { "type": "string" }
+        },
+        "workspaceMount": {
+          "type": "string",
+          "description": "The --mount parameter for docker run."
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="dockerfileContainer">
+    Validates Dockerfile-based configurations. It accepts two forms: the modern `build.dockerfile` form and the legacy `dockerFile` (top-level) form. Both require the Dockerfile path to be set.
+
+    ```json
+    "dockerfileContainer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "build": {
+              "type": "object",
+              "allOf": [
+                {
+                  "properties": {
+                    "dockerfile": { "type": "string" },
+                    "context": { "type": "string" }
+                  },
+                  "required": ["dockerfile"]
+                }
+              ]
+            }
+          },
+          "required": ["build"]
+        }
+      ]
+    }
+    ```
+
+    The `buildOptions` definition (referenced from `dockerfileContainer`) adds `target`, `args`, and `cacheFrom` properties for controlling multi-stage builds and build arguments.
+  </Accordion>
+
+  <Accordion title="composeContainer">
+    Validates Docker Compose configurations. Requires `dockerComposeFile`, `service`, and `workspaceFolder` to all be present.
+
+    ```json
+    "composeContainer": {
+      "type": "object",
+      "properties": {
+        "dockerComposeFile": {
+          "type": ["string", "array"],
+          "description": "The name of the docker-compose file(s) used to start the services."
+        },
+        "service": {
+          "type": "string",
+          "description": "The service you want to work on."
+        },
+        "runServices": {
+          "type": "array",
+          "description": "An array of services that should be started and stopped."
+        },
+        "workspaceFolder": {
+          "type": "string",
+          "description": "The path of the workspace folder inside the container."
+        },
+        "shutdownAction": {
+          "type": "string",
+          "enum": ["none", "stopCompose"]
+        },
+        "overrideCommand": { "type": "boolean" }
+      },
+      "required": ["dockerComposeFile", "service", "workspaceFolder"]
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## How the definitions compose
+
+The top-level schema uses `oneOf` to require that a valid `devcontainer.json` either:
+
+1. Combines one of (`dockerfileContainer` or `imageContainer`) with `nonComposeBase` and `devContainerCommon`, **or**
+2. Uses `composeContainer` merged with `devContainerCommon`.
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Defines a dev container",
+  "allowComments": true,
+  "allowTrailingCommas": false,
+  "oneOf": [
+    {
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "allOf": [
+                {
+                  "oneOf": [
+                    { "$ref": "#/definitions/dockerfileContainer" },
+                    { "$ref": "#/definitions/imageContainer" }
+                  ]
+                },
+                { "$ref": "#/definitions/nonComposeBase" }
+              ]
+            },
+            { "$ref": "#/definitions/composeContainer" }
+          ]
+        },
+        { "$ref": "#/definitions/devContainerCommon" }
+      ]
+    },
+    {
+      "type": "object",
+      "$ref": "#/definitions/devContainerCommon",
+      "additionalProperties": false
+    }
+  ]
+}
+```
+
+## Main schema
+
+The main schema is a thin wrapper that extends the base schema with tool-specific property definitions from VS Code and GitHub Codespaces:
+
+```json
+{
+  "allOf": [
+    { "$ref": "./devContainer.base.schema.json" },
+    {
+      "$ref": "https://raw.githubusercontent.com/microsoft/vscode/main/extensions/configuration-editing/schemas/devContainer.codespaces.schema.json"
+    },
+    {
+      "$ref": "https://raw.githubusercontent.com/microsoft/vscode/main/extensions/configuration-editing/schemas/devContainer.vscode.schema.json"
+    }
+  ]
+}
+```
+
+<Note>Tool-specific properties (such as VS Code extensions or Codespaces settings) live under the `customizations` key in `devcontainer.json` and are validated by the respective tool schemas referenced in the main schema.</Note>

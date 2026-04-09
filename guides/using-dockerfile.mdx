@@ -1,0 +1,145 @@
+---
+title: "Use a Dockerfile or Docker Compose in dev containers"
+description: "Learn how to reference a Dockerfile in devcontainer.json to install custom tools and extend base images for your development environment."
+---
+
+Many dev containers start from a plain image reference, but a Dockerfile gives you full control over what goes into your environment. You can install native OS packages, run custom build steps, or extend any base image — all without duplicating configuration across multiple projects. This guide covers three scenarios: using a Dockerfile directly, adding Docker Compose for multi-container setups, and combining both.
+
+## Using a Dockerfile
+
+A basic `devcontainer.json` references a prebuilt image:
+
+```json .devcontainer/devcontainer.json
+{
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu"
+}
+```
+
+To use a Dockerfile instead, follow these steps:
+
+<Steps>
+  <Step title="Create a Dockerfile next to devcontainer.json">
+    Add a `Dockerfile` in the same directory as your `devcontainer.json`. Use a dev container base image as your starting point and layer in any additional packages or configuration:
+
+    ```dockerfile Dockerfile
+    FROM mcr.microsoft.com/devcontainers/base:ubuntu
+    # Install the xz-utils package
+    RUN apt-get update && apt-get install -y xz-utils
+    ```
+  </Step>
+
+  <Step title="Update devcontainer.json to reference the Dockerfile">
+    Remove the `image` property from `devcontainer.json` and replace it with a `build` block pointing at your Dockerfile. The path is relative to the `devcontainer.json` file:
+
+    ```json .devcontainer/devcontainer.json
+    {
+        "build": {
+            "dockerfile": "Dockerfile"
+        }
+    }
+    ```
+
+    When you open the dev container, the Dockerfile builds automatically. No additional steps are required.
+  </Step>
+</Steps>
+
+<Tip>
+  You can embed dev container metadata — such as `features`, `customizations`, or lifecycle commands — directly in the image using image labels. This keeps settings in sync when you share the image with others. See the [prebuild guide](/guides/prebuild) for details.
+</Tip>
+
+## Using Docker Compose
+
+[Docker Compose](https://docs.docker.com/compose/) is the right tool when your development environment involves multiple services, such as a database or a cache. Instead of bundling those services into your dev container image, you reference their own images in a Compose file and focus your dev container on developer tooling.
+
+<Steps>
+  <Step title="Create a docker-compose.yml file">
+    Add a `docker-compose.yml` next to your `devcontainer.json`. The example below defines a dev container service alongside a PostgreSQL database, placing both on the same network so the container can reach the database on `localhost`:
+
+    ```yaml docker-compose.yml
+    version: '3.8'
+    services:
+      devcontainer:
+        image: mcr.microsoft.com/devcontainers/base:ubuntu
+        volumes:
+          - ../..:/workspaces:cached
+        network_mode: service:db
+        command: sleep infinity
+
+      db:
+        image: postgres:latest
+        restart: unless-stopped
+        volumes:
+          - postgres-data:/var/lib/postgresql/data
+        environment:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+
+    volumes:
+      postgres-data:
+    ```
+
+    Key points:
+    - `../..:/workspaces:cached` mounts your local source tree into the dev container.
+    - `network_mode: service:db` shares the database service's network namespace so you can connect to Postgres on `localhost`.
+  </Step>
+
+  <Step title="Update devcontainer.json for Compose">
+    Reference the Compose file and specify which service is the dev container:
+
+    ```json .devcontainer/devcontainer.json
+    {
+        "dockerComposeFile": "docker-compose.yml",
+        "service": "devcontainer",
+        "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}"
+    }
+    ```
+
+    - `service` identifies which Compose service is the dev container.
+    - `dockerComposeFile` points to your Compose file.
+    - `workspaceFolder` sets where your source tree is mounted inside the container.
+  </Step>
+</Steps>
+
+## Combining a Dockerfile with Docker Compose
+
+You can build a custom image with a Dockerfile and still use Compose for your service definitions. Replace the `image` key in your Compose service with a `build` section:
+
+```yaml docker-compose.yml
+version: '3.8'
+services:
+  devcontainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ../..:/workspaces:cached
+    network_mode: service:db
+    command: sleep infinity
+
+  db:
+    image: postgres:latest
+    restart: unless-stopped
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+
+volumes:
+  postgres-data:
+```
+
+The `devcontainer.json` stays the same as in the Compose-only example above.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Prebuild dev container images" icon="bolt" href="/guides/prebuild">
+    Build your image once and push it to a registry so teammates and CI skip the build step entirely.
+  </Card>
+  <Card title="Author a Feature" icon="puzzle-piece" href="/guides/author-a-feature">
+    Package reusable installation scripts as Features to share across projects.
+  </Card>
+</CardGroup>

@@ -1,0 +1,162 @@
+---
+title: "Use dev containers in GitLab CI for consistent tests"
+description: "Use the Dev Container CLI with GitLab CI to build, test, and run your project inside your dev container for consistent CI and local environments."
+---
+
+Using your dev container in CI ensures that the environment your tests run in matches the environment every developer uses locally. GitHub CI has a dedicated GitHub Action for this, but GitLab CI requires a different approach: you pre-build the dev container image in a separate GitLab project, push it to the GitLab Container Registry, and then reference that prebuilt image in both your local dev container and your CI pipeline. This guide walks you through that pattern end to end.
+
+This example is a Python CDK project that uses the [AWS CLI](https://github.com/devcontainers/features/tree/main/src/aws-cli) and [AWS CDK](http://github.com/devcontainers-contrib/features/tree/main/src/aws-cdk) Features. The main project is assumed to live at `my-user/my-project`.
+
+## Part 1: The dev container project
+
+Create a dedicated GitLab project to hold and build your dev container. Keeping the dev container definition in its own project makes it easy to version and rebuild independently of your main codebase. Name it something like `my-project-dev-container`.
+
+### devcontainer.json
+
+Define your dev container with any Features you need. The `build` section points to a `Dockerfile` in the project root:
+
+```json .devcontainer/devcontainer.json
+{
+  "build": {
+    "context": "..",
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/aws-cli:1": {},
+    "ghcr.io/devcontainers-contrib/features/aws-cdk:2": {}
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.formatting.provider": "black"
+      }
+    }
+  }
+}
+```
+
+### Dockerfile
+
+The `Dockerfile` starts from the official Python dev container image and installs the Python packages this project needs:
+
+```dockerfile Dockerfile
+FROM mcr.microsoft.com/devcontainers/python:latest
+
+RUN pip3 --disable-pip-version-check --no-cache-dir install aws_cdk_lib constructs jsii pylint \
+    && rm -rf /tmp/pip-tmp
+```
+
+### .gitlab-ci.yml
+
+Because there is no GitLab CI equivalent to the [devcontainers-ci GitHub Action](https://github.com/marketplace/actions/devcontainers-ci), you install the Dev Container CLI directly in the pipeline. This job:
+
+1. Installs the packages the Dev Container CLI requires (`nodejs`, `npm`, `python3`, `make`, `g++`)
+2. Installs the Dev Container CLI itself
+3. Authenticates with the GitLab Container Registry
+4. Builds the dev container and pushes it to the registry
+
+```yaml .gitlab-ci.yml
+image: docker:latest
+
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+
+services:
+  - docker:dind
+
+before_script:
+  - apk add --update nodejs npm python3 make g++
+  - npm install -g @devcontainers/cli
+
+build:
+  stage: build
+  script:
+    - docker login -u gitlab-ci-token -p ${CI_JOB_TOKEN} ${CI_REGISTRY}
+    - devcontainer build --workspace-folder . --push true --image-name ${CI_REGISTRY_IMAGE}:latest
+```
+
+<Note>
+  Pin the versions of packages installed by `apk`, `npm`, and `pip` for reproducible builds. This guide omits version pinning so you can run it as-is.
+</Note>
+
+## Part 2: The main project
+
+With the dev container image built and pushed to the GitLab Container Registry, the main project can reference it in both `devcontainer.json` (for local development) and `.gitlab-ci.yml` (for CI).
+
+### devcontainer.json
+
+Point directly at the prebuilt image in the GitLab Container Registry:
+
+```json .devcontainer/devcontainer.json
+{
+  "image": "registry.gitlab.com/my-user/my-project-dev-container"
+}
+```
+
+Local developers get the same environment as CI by opening this dev container in VS Code or any other supporting tool.
+
+### .gitlab-ci.yml
+
+Use the `${CI_REGISTRY_IMAGE}` variable to derive the dev container image name from the main project's registry path. This pipeline runs linting and compilation checks on every merge request:
+
+```yaml .gitlab-ci.yml
+image: ${CI_REGISTRY_IMAGE}-dev-container:latest
+
+before_script:
+  - python --version
+  - cdk --version
+
+stages:
+  - Build
+  - Lint
+
+py_compile:
+  stage: Build
+  script:
+    - find . -type f -name "*.py" -print | xargs -n1 python3 -m py_compile
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+cdk synth:
+  stage: Build
+  script:
+    - JSII_DEPRECATED=fail cdk --app "python3 app.py" synth
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+Pylint:
+  stage: Lint
+  script:
+    - pylint *
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+Black code format:
+  stage: Lint
+  script:
+    - black --check --diff .
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+```
+
+## How the two projects connect
+
+<CardGroup cols={2}>
+  <Card title="Dev container project" icon="box">
+    Owns the `Dockerfile`, `devcontainer.json`, and CI pipeline that builds and pushes the image. Rebuild here whenever you update dependencies or base images.
+  </Card>
+  <Card title="Main project" icon="code">
+    References the prebuilt image from the registry. Developers and CI both use the same image, ensuring consistent behavior across environments.
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Prebuild images with GitHub Actions" icon="github" href="/guides/prebuild">
+    Learn the general prebuilding workflow and how to automate it in GitHub Actions.
+  </Card>
+  <Card title="Keep Features updated with Dependabot" icon="shield-halved" href="/guides/dependabot">
+    Automate version updates for dev container Features using Dependabot.
+  </Card>
+</CardGroup>

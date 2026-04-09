@@ -1,0 +1,227 @@
+---
+title: "devcontainer.json: the dev container config format"
+description: "devcontainer.json is the structured metadata format used by the Dev Container Spec to define tools, settings, and configuration for your environment."
+---
+
+The `devcontainer.json` file is the central configuration format of the Dev Container Specification. You place it in your repository to describe a reproducible development environment — what image or Dockerfile to use, which tools and features to install, how ports are forwarded, what commands to run on creation, and much more. Any tool that supports the spec reads this file to build and connect to a consistent container for every developer on your team.
+
+## File locations
+
+When a supporting tool opens a workspace, it searches for `devcontainer.json` in the following locations, in order of precedence:
+
+<Steps>
+  <Step title=".devcontainer/devcontainer.json">
+    The most common location. Place your config inside a `.devcontainer` folder at the root of your repository.
+  </Step>
+  <Step title=".devcontainer.json">
+    A single flat file at the repository root — useful for simple projects that don't need a dedicated folder.
+  </Step>
+  <Step title=".devcontainer/&lt;folder&gt;/devcontainer.json">
+    A sub-folder one level deep inside `.devcontainer`. Use this pattern when a repository contains multiple named configurations (for example, one per service or target environment).
+  </Step>
+</Steps>
+
+<Note>
+  More than one of these files can exist in the same repository. Tools should offer a way for users to choose which configuration to activate when more than one is present.
+</Note>
+
+## Property categories
+
+`devcontainer.json` properties fall into several logical groups. The sections below show the most important categories with representative examples.
+
+### Container source
+
+Every `devcontainer.json` must declare where the container image comes from. You can reference a pre-built image, build from a Dockerfile, or delegate to Docker Compose.
+
+<CodeGroup>
+
+```json image
+{
+  "name": "My Project",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu"
+}
+```
+
+```json dockerfile
+{
+  "name": "My Project",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  }
+}
+```
+
+```json docker-compose
+{
+  "name": "My Project",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace"
+}
+```
+
+</CodeGroup>
+
+See [Orchestration: image, Dockerfile, and Docker Compose](/spec/orchestration) for full details on each mode.
+
+### Features
+
+Dev Container Features are self-contained units of installation code you can layer on top of any image. Each feature installs a tool or runtime, and you can combine as many as you need.
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  }
+}
+```
+
+### Lifecycle scripts
+
+Lifecycle scripts let you run commands at specific points during container creation and startup. They execute inside the container after it has started.
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "postCreateCommand": "npm install",
+  "postStartCommand": "npm run dev"
+}
+```
+
+See [Dev container lifecycle](/spec/lifecycle) for the full sequence and all available hooks.
+
+### Port forwarding
+
+Use `forwardPorts` to automatically expose ports from inside the container to your local machine, and `portsAttributes` to control how each port behaves.
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "forwardPorts": [3000, 5432],
+  "portsAttributes": {
+    "3000": {
+      "label": "Web app",
+      "onAutoForward": "openPreview"
+    },
+    "5432": {
+      "label": "Postgres",
+      "onAutoForward": "silent"
+    }
+  }
+}
+```
+
+### Environment variables
+
+Two properties control environment variables. `containerEnv` sets static variables baked into the container at creation time. `remoteEnv` sets variables injected by the supporting tool at runtime, after the container starts.
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "containerEnv": {
+    "APP_ENV": "development"
+  },
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:/workspace/scripts",
+    "LOCAL_HOME": "${localEnv:HOME}"
+  }
+}
+```
+
+### User configuration
+
+`remoteUser` sets the user that lifecycle scripts and connected tools run as. `containerUser` sets the user for all processes inside the container. On Linux, `updateRemoteUserUID` syncs the container user's UID/GID with your local user to avoid permission issues on bind mounts.
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true
+}
+```
+
+### Mounts
+
+`mounts` lets you attach additional volumes or bind mounts beyond the default workspace mount.
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "mounts": [
+    {
+      "source": "dind-var-lib-docker",
+      "target": "/var/lib/docker",
+      "type": "volume"
+    }
+  ]
+}
+```
+
+### Tool customizations
+
+The `customizations` property holds tool-specific configuration. Each tool reads the sub-object keyed to its own name and ignores the rest.
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "customizations": {
+    "vscode": {
+      "extensions": ["esbenp.prettier-vscode"],
+      "settings": {
+        "editor.formatOnSave": true
+      }
+    }
+  }
+}
+```
+
+### Host requirements
+
+Use `hostRequirements` to declare the minimum CPU, memory, storage, and GPU your container needs. Cloud services can use these values to provision appropriate compute automatically.
+
+```json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
+  }
+}
+```
+
+## Variable substitution
+
+String values in `devcontainer.json` support variable references using the `${variableName}` syntax. This lets you reference host environment variables, workspace paths, and container variables without hardcoding them.
+
+| Variable | Description |
+|---|---|
+| `${localEnv:VAR}` | Value of an environment variable on the host machine. |
+| `${containerEnv:VAR}` | Value of a variable already set inside the running container. Only usable in `remoteEnv`. |
+| `${localWorkspaceFolder}` | Absolute path to the project folder on the host. |
+| `${containerWorkspaceFolder}` | Absolute path to the workspace inside the container. |
+| `${localWorkspaceFolderBasename}` | Name of the project folder on the host. |
+| `${containerWorkspaceFolderBasename}` | Name of the workspace folder inside the container. |
+| `${devcontainerId}` | Stable unique identifier for this dev container instance. |
+
+## Further reference
+
+<CardGroup cols={2}>
+  <Card title="Lifecycle scripts" icon="rotate" href="/spec/lifecycle">
+    Full sequence of creation and startup hooks with examples.
+  </Card>
+  <Card title="Orchestration modes" icon="layer-group" href="/spec/orchestration">
+    Image, Dockerfile, and Docker Compose configurations explained.
+  </Card>
+  <Card title="Image metadata labels" icon="tag" href="/spec/image-metadata">
+    Embed dev container config directly in pre-built images.
+  </Card>
+  <Card title="JSON reference" href="/reference/json-reference" icon="list">
+    Complete property-by-property reference for devcontainer.json.
+  </Card>
+</CardGroup>

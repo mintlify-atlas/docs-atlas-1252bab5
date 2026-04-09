@@ -1,0 +1,227 @@
+---
+title: "Distribute and publish Dev Container Features to OCI"
+description: "Publish Dev Container Features to OCI registries like GHCR using the devcontainer-collection.json format, versioning, and packaging conventions."
+---
+
+Publishing a Feature lets anyone reference it from their `devcontainer.json` by name. The specification defines a self-service distribution model: you own the registry namespace, you control the release cadence, and no central gatekeeper is required. This page covers everything from how to structure your source repository through to the exact `oras` commands used to push artifacts to an OCI registry.
+
+<Tip>
+  The fastest way to get started is the [feature-template repository](https://github.com/devcontainers/feature-template), which includes a working GitHub Actions workflow that implements this entire pipeline for you.
+</Tip>
+
+## Source code structure
+
+Features source code lives in a git repository. You can host one Feature per repository or bundle multiple Features in a single repository — referred to as a "collection". A collection shares one namespace (e.g. `owner/repo`) and one `devcontainer-collection.json`.
+
+The recommended layout for a multi-Feature repository is:
+
+```
+.
+├── README.md
+├── src/
+│   ├── dotnet/
+│   │   ├── devcontainer-feature.json
+│   │   ├── install.sh
+│   │   └── ...
+│   ├── go/
+│   │   ├── devcontainer-feature.json
+│   │   └── install.sh
+│   └── python/
+│       ├── devcontainer-feature.json
+│       └── install.sh
+└── test/
+    ├── dotnet/
+    │   └── test.sh
+    ├── go/
+    │   └── test.sh
+    └── python/
+        └── test.sh
+```
+
+Each Feature sub-directory under `src/` must be named to match the `id` field in its `devcontainer-feature.json`. Any files placed inside a Feature's sub-directory are included when the Feature is packaged. Files outside the sub-directory are excluded.
+
+<Note>
+  The `test/` directory is optional. Supporting tools may use `test.sh` scripts to run automated tests against a Feature.
+</Note>
+
+## Versioning
+
+Each Feature is versioned independently using [semver](https://semver.org/). The `version` field in `devcontainer-feature.json` is the source of truth.
+
+Tooling that publishes Features applies the following rules:
+
+- A Feature at a version that has already been published will **not** be republished.
+- Tooling **must** republish the floating major and minor tags (e.g. `:1` and `:1.2`) whenever a new patch is released.
+
+Increment the `version` field in `devcontainer-feature.json` for each release. The change must be committed to source control before running the publish step.
+
+## Packaging
+
+Features are distributed as `.tgz` tarballs. Each tarball contains the entire contents of the Feature's sub-directory: the `devcontainer-feature.json`, `install.sh`, and any other files you included.
+
+The tarball must follow this naming convention:
+
+```
+devcontainer-feature-<id>.tgz
+```
+
+For example, a Feature with `"id": "go"` is packaged as `devcontainer-feature-go.tgz`.
+
+A reference implementation that handles packaging and publishing is provided as the [Dev Container Publish GitHub Action](https://github.com/marketplace/actions/dev-container-publish).
+
+### devcontainer-collection.json
+
+When you publish a collection, an auto-generated `devcontainer-collection.json` index file is produced and pushed alongside the individual Feature artifacts. Supporting tools use this file for discovery.
+
+| Property | Type | Description |
+|---|---|---|
+| `sourceInformation` | object | Metadata from the packaging tool (version, timestamp, etc.). |
+| `features` | array | Array of Feature metadata objects — one per Feature in the collection. |
+
+Each Feature's full `devcontainer-feature.json` content is appended into the `features` array. The collection file is always tagged as `:latest` in the registry.
+
+## Distribution
+
+### OCI registry
+
+An OCI registry that implements the [OCI Artifact Distribution Specification](https://github.com/opencontainers/distribution-spec) is the primary distribution mechanism. GHCR (`ghcr.io`) is the most commonly used public registry.
+
+Each Feature is pushed at four version tags — `<major>`, `<major>.<minor>`, `<major>.<minor>.<patch>`, and `latest` — using the custom media types `application/vnd.devcontainers` and `application/vnd.devcontainers.layer.v1+tar`.
+
+The naming convention for a published Feature is:
+
+```
+<registry>/<namespace>/<feature-id>[:<version>]
+```
+
+The namespace typically mirrors the source repository's `owner/repo` path. For example, the `go` Feature in the `devcontainers/features` collection at version `1.2.3` is pushed to `ghcr.io/devcontainers/features/go`.
+
+<Note>
+  The example below uses [`oras`](https://oras.land/) for illustration. A supporting tool should implement the OCI artifact distribution protocol directly rather than shelling out to `oras`.
+</Note>
+
+```bash push a Feature to GHCR
+# ghcr.io/devcontainers/features/go:1.2.3 (and floating tags)
+REGISTRY=ghcr.io
+NAMESPACE=devcontainers/features
+FEATURE=go
+
+ARTIFACT_PATH=devcontainer-feature-go.tgz
+
+for VERSION in 1  1.2  1.2.3  latest
+do
+    oras push ${REGISTRY}/${NAMESPACE}/${FEATURE}:${VERSION} \
+            --config /dev/null:application/vnd.devcontainers \
+                             ./${ARTIFACT_PATH}:application/vnd.devcontainers.layer.v1+tar
+done
+```
+
+After pushing individual Features, push the collection index file at the namespace level (no Feature name), always tagged `:latest`:
+
+```bash push the collection index
+# ghcr.io/devcontainers/features:latest
+REGISTRY=ghcr.io
+NAMESPACE=devcontainers/features
+
+oras push ${REGISTRY}/${NAMESPACE}:latest \
+        --config /dev/null:application/vnd.devcontainers \
+                            ./devcontainer-collection.json:application/vnd.devcontainers.collection.layer.v1+json
+```
+
+### OCI manifest annotations
+
+When a supporting tool publishes a Feature, it must include a `dev.containers.metadata` annotation on the OCI manifest. The annotation value is the escaped JSON string of the Feature's `devcontainer-feature.json` at the time of packaging.
+
+```json OCI manifest with annotation
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "config": {
+    "mediaType": "application/vnd.devcontainers",
+    "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "size": 0
+  },
+  "layers": [
+    {
+      "mediaType": "application/vnd.devcontainers.layer.v1+tar",
+      "digest": "sha256:738af5504b253dc6de51d2cb1556cdb7ce70ab18b2f32b0c2f12650ed6d2e4bc",
+      "size": 3584,
+      "annotations": {
+        "org.opencontainers.image.title": "devcontainer-feature-myFeature.tgz"
+      }
+    }
+  ],
+  "annotations": {
+    "dev.containers.metadata": "{\"name\":\"My Feature\",\"id\":\"myFeature\",\"version\":\"1.0.0\"}"
+  }
+}
+```
+
+### Directly referencing a tarball
+
+Instead of publishing to a registry, you can host a Feature tarball at any stable HTTPS URL and reference it directly in `devcontainer.json`. The archive must be named `devcontainer-feature-<id>.tgz`.
+
+```json devcontainer.json
+{
+  "features": {
+    "https://github.com/user/repo/releases/download/v1.0.0/devcontainer-feature-go.tgz": {
+      "version": "1.21"
+    }
+  }
+}
+```
+
+This approach works well for private distributions or one-off sharing, but OCI registries are preferred for public Features because they provide integrity verification and semver-based discovery.
+
+## Locally referenced Features
+
+You can reference a Feature by relative path during development, before it is published. This avoids the publish-test cycle while you are authoring.
+
+Local Features must satisfy these constraints:
+
+- Your project must have a `.devcontainer/` folder at the workspace root.
+- The Feature source directory must be a sub-folder of `.devcontainer/`.
+- The sub-folder name must match the Feature's `id`.
+- The path must be relative (not absolute) and use Unix-style separators.
+- The Feature folder must contain at least `devcontainer-feature.json` and `install.sh`.
+
+A project using two local Features looks like this:
+
+```
+.
+└── .devcontainer/
+    ├── localFeatureA/
+    │   ├── devcontainer-feature.json
+    │   └── install.sh
+    ├── localFeatureB/
+    │   ├── devcontainer-feature.json
+    │   └── install.sh
+    └── devcontainer.json
+```
+
+Reference them in `devcontainer.json` using a relative path from the `.devcontainer/` folder:
+
+```json .devcontainer/devcontainer.json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "./localFeatureA": {},
+    "./localFeatureB": {}
+  }
+}
+```
+
+<Tip>
+  Local Features can also depend on other local Features via relative paths in the `dependsOn` property, using the same path resolution rules as above.
+</Tip>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Authoring reference" icon="pen-to-square" href="/features/authoring">
+    Review the full devcontainer-feature.json schema, option resolution, and lifecycle hooks.
+  </Card>
+  <Card title="Using Features" icon="puzzle-piece" href="/features/overview">
+    See how to reference published Features in devcontainer.json and pass options.
+  </Card>
+</CardGroup>

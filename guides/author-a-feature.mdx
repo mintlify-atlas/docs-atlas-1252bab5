@@ -1,0 +1,153 @@
+---
+title: "Author and publish your first Dev Container Feature"
+description: "Step-by-step guide to creating a Dev Container Feature, publishing it to a container registry, and making it available for others to use."
+---
+
+Dev Container Features are self-contained, shareable units of installation code and dev container configuration. You can author a Feature once, publish it to a container registry, and let anyone add it to their `devcontainer.json` with a single line. This guide walks you through creating your first Feature and making it discoverable in the public index.
+
+<Note>
+  This guide uses GitHub and the GitHub Container Registry (GHCR), but you can use any source control system and publish to any [OCI Artifact-compatible registry](https://oras.land/docs/compatible_oci_registries#registries-supporting-oci-artifacts).
+</Note>
+
+## Prerequisites
+
+- A GitHub account
+- The [Dev Container CLI](https://github.com/devcontainers/cli) installed (`npm install -g @devcontainers/cli`) if you plan to publish outside of GitHub Actions
+
+## Create and publish your Feature
+
+<Steps>
+  <Step title="Create a repository">
+    Create a GitHub repository to host your Feature. The quickest way to get started is to use the [`devcontainers/feature-starter`](https://github.com/devcontainers/feature-starter) template — click the green **Use this template** button on the repo page.
+
+    Alternatively, [create a new repository](https://docs.github.com/en/get-started/quickstart/create-a-repo) from scratch.
+  </Step>
+
+  <Step title="Create a folder for your Feature">
+    Inside the repository, create a folder for your Feature under the `src/` directory. If you want to ship multiple Features from the same repo, add one folder per Feature.
+
+    ```
+    src/
+    └── hello/
+        ├── devcontainer-feature.json
+        └── install.sh
+    ```
+  </Step>
+
+  <Step title="Add the required files">
+    Every Feature needs at minimum two files: `devcontainer-feature.json` and `install.sh`.
+
+    **`devcontainer-feature.json`** declares metadata and any configurable options:
+
+    ```json devcontainer-feature.json
+    {
+        "name": "Hello, World!",
+        "id": "hello",
+        "version": "1.0.2",
+        "description": "A hello world feature",
+        "options": {
+            "greeting": {
+                "type": "string",
+                "proposals": [
+                    "hey",
+                    "hello",
+                    "hi",
+                    "howdy"
+                ],
+                "default": "hey",
+                "description": "Select a pre-made greeting, or enter your own"
+            }
+        }
+    }
+    ```
+
+    **`install.sh`** is the entrypoint script that runs during container build. Options defined in `devcontainer-feature.json` are injected as uppercase environment variables:
+
+    ```bash install.sh
+    #!/bin/sh
+    set -e
+
+    echo "Activating feature 'hello'"
+
+    GREETING=${GREETING:-undefined}
+    echo "The provided greeting is: $GREETING"
+
+    cat > /usr/local/bin/hello \
+    << EOF
+    #!/bin/sh
+    RED='\033[0;91m'
+    NC='\033[0m' # No Color
+    echo "\${RED}${GREETING}, \$(whoami)!\${NC}"
+    EOF
+
+    chmod +x /usr/local/bin/hello
+    ```
+
+    <Tip>
+      Browse the [`devcontainers/features`](https://github.com/devcontainers/features/tree/main/src) repo for real-world examples covering a wide range of tools and installation patterns.
+    </Tip>
+  </Step>
+
+  <Step title="Publish to GHCR">
+    The `feature-starter` template ships with a GitHub Actions [release workflow](https://github.com/devcontainers/feature-starter/blob/main/.github/workflows/release.yaml) that automatically publishes each Feature to GHCR. Once the workflow runs, your Feature is addressable as:
+
+    ```
+    ghcr.io/<owner>/<repo>/<featureName>:<version>
+    ```
+
+    The workflow also publishes a metadata package at the namespace root (e.g., `ghcr.io/<owner>/<repo>`). Supporting tools use this to discover all Features in the collection without downloading each one individually.
+
+    <Note>
+      If you are not using GitHub Actions, you can publish manually with the Dev Container CLI:
+      ```bash
+      devcontainer features publish src/<featureName> --registry ghcr.io --namespace <owner>/<repo>
+      ```
+    </Note>
+  </Step>
+
+  <Step title="Make the package public">
+    GHCR packages are private by default. To make your Feature freely usable, set its visibility to **Public** in the package settings. Navigate to:
+
+    ```
+    https://github.com/users/<owner>/packages/container/<repo>%2F<featureName>/settings
+    ```
+
+    Change the visibility to **Public** and save.
+  </Step>
+
+  <Step title="Add your Feature to the public index">
+    To make your Feature discoverable on [containers.dev/features](https://containers.dev/features) and in tools like VS Code Dev Containers and GitHub Codespaces, open a pull request against the [`devcontainers/devcontainers.github.io`](https://github.com/devcontainers/devcontainers.github.io) repository and add a single entry to [`_data/collection-index.yml`](https://github.com/devcontainers/devcontainers.github.io/blob/gh-pages/_data/collection-index.yml).
+
+    <Warning>
+      Add **one entry per repository**, using the collection namespace root as the `ociReference` — for example, `ghcr.io/<owner>/<repo>`. Do not point to an individual Feature path, and do not include a URL scheme (`http://` or `https://`). The site automatically discovers all Features in the collection from that single entry.
+    </Warning>
+
+    Features hosted in other OCI Artifact registries are welcome as long as they can be downloaded without authentication.
+  </Step>
+</Steps>
+
+## Use your published Feature
+
+Once published, anyone can reference your Feature in their `devcontainer.json`:
+
+```json .devcontainer/devcontainer.json
+{
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "features": {
+        "ghcr.io/<owner>/<repo>/hello:1": {
+            "greeting": "howdy"
+        }
+    }
+}
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Feature best practices" icon="star" href="/guides/feature-best-practices">
+    Learn idempotency, OS detection, and other patterns for production-quality Features.
+  </Card>
+  <Card title="Prebuild dev container images" icon="bolt" href="/guides/prebuild">
+    Speed up container startup by prebuilding and caching your images with GitHub Actions.
+  </Card>
+</CardGroup>

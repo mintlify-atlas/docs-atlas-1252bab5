@@ -1,0 +1,170 @@
+---
+title: "Dev Container CLI: installation and first container"
+description: "Install the Dev Container CLI via npm and use it to create, build, and run dev containers from your devcontainer.json configuration file."
+---
+
+The Dev Container CLI is the open-source reference implementation of the Development Container Specification. When tools like VS Code and GitHub Codespaces detect a `devcontainer.json` file in your project, they use this CLI under the hood. You can use it directly to build, run, and work inside dev containers from any terminal — without needing an editor plugin or cloud service.
+
+## Prerequisites
+
+To install the CLI's npm package, you need the following on your machine:
+
+- [Node.js](https://nodejs.org/) version 14 or greater
+- Python
+- A C/C++ compiler (to build one of the CLI's native dependencies)
+- [Docker](https://docs.docker.com/get-docker/) running locally
+
+<Note>
+  The VS Code [How to Contribute](https://github.com/microsoft/vscode/wiki/How-to-Contribute) wiki has details about the recommended toolsets for your platform, including how to install all required build dependencies.
+</Note>
+
+## Install the CLI
+
+<Steps>
+  <Step title="Install via npm">
+    Install the `@devcontainers/cli` package globally:
+
+    ```bash
+    npm install -g @devcontainers/cli
+    ```
+  </Step>
+  <Step title="Verify the installation">
+    Confirm the CLI is available by checking its help output:
+
+    ```bash
+    devcontainer <command>
+
+    Commands:
+      devcontainer up                   Create and run dev container
+      devcontainer build [path]         Build a dev container image
+      devcontainer run-user-commands    Run user commands
+      devcontainer read-configuration   Read configuration
+      devcontainer features             Features commands
+      devcontainer templates            Templates commands
+      devcontainer exec <cmd> [args..]  Execute a command on a running dev container
+
+    Options:
+      --help     Show help                                                 [boolean]
+      --version  Show version number                                       [boolean]
+    ```
+  </Step>
+</Steps>
+
+## Start a dev container
+
+The `devcontainer up` command reads your `devcontainer.json`, builds the image if necessary, and starts the container.
+
+Clone the [Rust sample project](https://github.com/microsoft/vscode-remote-try-rust) and start its dev container:
+
+```bash
+git clone https://github.com/microsoft/vscode-remote-try-rust
+devcontainer up --workspace-folder vscode-remote-try-rust
+```
+
+The CLI downloads the container image, builds it, and starts the container. You'll see output like this:
+
+```bash
+[88 ms] dev-containers-cli 0.1.0.
+[165 ms] Start: Run: docker build -f /home/node/vscode-remote-try-rust/.devcontainer/Dockerfile -t vsc-vscode-remote-try-rust-89420ad7399ba74f55921e49cc3ecfd2 --build-arg VARIANT=bullseye /home/node/vscode-remote-try-rust/.devcontainer
+[+] Building 0.5s (5/5) FINISHED
+ => [internal] load build definition from Dockerfile                       0.0s
+ => => transferring dockerfile: 38B                                        0.0s
+ => [internal] load .dockerignore                                          0.0s
+ => => transferring context: 2B                                            0.0s
+ => [internal] load metadata for mcr.microsoft.com/vscode/devcontainers/r  0.4s
+ => CACHED [1/1] FROM mcr.microsoft.com/vscode/devcontainers/rust:1-bulls  0.0s
+ => exporting to image                                                     0.0s
+ => => exporting layers                                                    0.0s
+ => => writing image sha256:39873ccb81e6fb613975e11e37438eee1d49c963a436d  0.0s
+ => => naming to docker.io/library/vsc-vscode-remote-try-rust-89420ad7399  0.0s
+[1640 ms] Start: Run: docker run --sig-proxy=false -a STDOUT -a STDERR --mount type=bind,source=/home/node/vscode-remote-try-rust,target=/workspaces/vscode-remote-try-rust -l devcontainer.local_folder=/home/node/vscode-remote-try-rust --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --entrypoint /bin/sh vsc-vscode-remote-try-rust-89420ad7399ba74f55921e49cc3ecfd2-uid -c echo Container started
+Container started
+{"outcome":"success","containerId":"f0a055ff056c1c1bb99cc09930efbf3a0437c54d9b4644695aa23c1d57b4bd11","remoteUser":"vscode","remoteWorkspaceFolder":"/workspaces/vscode-remote-try-rust"}
+```
+
+## Execute commands inside the container
+
+Use `devcontainer exec` to run commands inside a running dev container. Pass the workspace folder and the command you want to run:
+
+```bash
+devcontainer exec --workspace-folder vscode-remote-try-rust cargo run
+```
+
+The Rust sample compiles and runs inside the container:
+
+```bash
+[33 ms] dev-containers-cli 0.1.0.
+   Compiling hello_remote_world v0.1.0 (/workspaces/vscode-remote-try-rust)
+    Finished dev [unoptimized + debuginfo] target(s) in 1.06s
+     Running `target/debug/hello_remote_world`
+Hello, VS Code Remote - Containers!
+{"outcome":"success"}
+```
+
+## Build an image
+
+Use `devcontainer build` to build the dev container image defined by your `devcontainer.json` without starting a container. This is useful for validating your configuration or preparing images for CI.
+
+```bash
+devcontainer build --workspace-folder .
+```
+
+## Prebuild and push images
+
+Running a full build every time you open a project adds latency. Pre-building your dev container image and pushing it to a registry gives you faster startup times, a pinned toolchain version, and improved supply-chain security.
+
+Use the `--push` flag to build and push in one step:
+
+```bash
+devcontainer build --workspace-folder . --push true --image-name <my_image_name>:<optional_image_version>
+```
+
+Once you have pushed the image, reference it directly in your `devcontainer.json`:
+
+```json .devcontainer/devcontainer.json
+{
+  "image": "mcr.microsoft.com/devcontainers/go:1"
+}
+```
+
+<Tip>
+  Automate pre-builds by scheduling `devcontainer build --push` in a GitHub Actions workflow or another CI service. The [GitHub Action](https://github.com/marketplace/actions/devcontainers-ci) and [Azure DevOps task](https://marketplace.visualstudio.com/items?itemName=devcontainers.ci) in [devcontainers/ci](https://github.com/devcontainers/ci) make this straightforward.
+</Tip>
+
+### Metadata in image labels
+
+When you pre-build using the CLI, it automatically adds a `devcontainer.metadata` label to the image. This label stores your `devcontainer.json` settings and any referenced Feature metadata, making the image self-contained.
+
+When another developer (or a CI job) references the prebuilt image, the metadata is automatically picked up and merged with any local `devcontainer.json`. This keeps your dev container config and image contents in sync and lets you push updates to multiple repositories through a single image reference.
+
+You can also add metadata manually in your Dockerfile:
+
+```dockerfile Dockerfile
+LABEL devcontainer.metadata='[{ \
+  "capAdd": [ "SYS_PTRACE" ], \
+  "remoteUser": "devcontainer", \ 
+  "postCreateCommand": "yarn install" \ 
+}]'
+```
+
+## Firewall allowlist
+
+If you are behind a firewall, allow outbound traffic to the following hostnames so the CLI can pull images and Features:
+
+| Hostname | Purpose |
+|---|---|
+| `containers.dev` | Dev container homepage; hosts official Features and Templates |
+| `ghcr.io` | GitHub Container Registry — primary OCI registry for Features |
+| `*.azurecr.io` | Azure Container Registry |
+| `mcr.microsoft.com` | Microsoft Container Registry |
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Overview" icon="book-open" href="/overview">
+    Understand the full scope of the Dev Container Specification and all supported configuration options.
+  </Card>
+  <Card title="Dev Container Features" icon="puzzle-piece" href="/features/overview">
+    Add pre-built tools and runtimes to your container with a single line in devcontainer.json.
+  </Card>
+</CardGroup>

@@ -1,0 +1,150 @@
+---
+title: "Dev Container Features: add tools to your container"
+description: "Dev Container Features are self-contained, shareable units of installation code that add tools, runtimes, or libraries to your dev container in one line."
+---
+
+Dev Container Features are self-contained, shareable units of installation code and configuration. Referencing a Feature in your `devcontainer.json` lets you add a tool, runtime, or library to your container without writing custom Dockerfile steps — and anyone on your team benefits immediately from the same addition.
+
+<CardGroup cols={3}>
+  <Card title="Reference from a registry" icon="box-archive">
+    Pull any Feature published to an OCI registry like GHCR by name and optional version tag.
+  </Card>
+  <Card title="Pin to any version" icon="tag">
+    Append a semver tag or digest to lock a Feature to an exact release for reproducible builds.
+  </Card>
+  <Card title="Use local Features" icon="folder-open">
+    Reference a Feature by relative path for local development and testing before publishing.
+  </Card>
+</CardGroup>
+
+## The `features` object in devcontainer.json
+
+You declare Features under the top-level `features` key in `devcontainer.json`. Each entry is a key-value pair where the key is the Feature identifier and the value is an options object (or an empty object `{}` to accept all defaults).
+
+```json .devcontainer/devcontainer.json
+{
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/go:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    },
+    "https://github.com/user/repo/releases/devcontainer-feature-go.tgz": {
+      "optionA": "value"
+    },
+    "./myGoFeature": {
+      "optionA": true,
+      "optionB": "hello"
+    }
+  }
+}
+```
+
+You can include any number of Features. Supporting tools install them in an order determined by the [installation order rules](/features/authoring#installation-order).
+
+<Note>
+  The `:latest` version tag is applied implicitly when you omit a version. To pin to a specific published version, append it to the Feature identifier — for example, `ghcr.io/devcontainers/features/go:1.2.3`.
+</Note>
+
+## How to reference a Feature
+
+The Feature identifier format tells the supporting tool where to fetch the Feature. Three reference types are supported:
+
+| Format | Description | Example |
+|---|---|---|
+| `<oci-registry>/<namespace>/<feature>[:<version>]` | Feature published to an OCI registry | `ghcr.io/devcontainers/features/go:1` |
+| `https://<uri-to-feature-tgz>` | Direct HTTPS URI to a `.tgz` tarball | `https://github.com/user/repo/releases/devcontainer-feature-go.tgz` |
+| `./<path-to-feature-dir>` | Relative path to a local feature folder | `./myGoFeature` |
+
+The relative path for local Features is always resolved from the folder that contains your `devcontainer.json`.
+
+<Tip>
+  OCI registries must implement the [OCI Artifact Distribution Specification](https://github.com/opencontainers/distribution-spec). GHCR (`ghcr.io`) is the most common choice for public Features.
+</Tip>
+
+## Version pinning
+
+Each Feature is independently versioned using [semver](https://semver.org/). You can pin at the major, minor, or patch level, or reference a digest for exact reproducibility.
+
+```json
+"features": {
+  "ghcr.io/devcontainers/features/go": {},
+  "ghcr.io/devcontainers/features/go:1": {},
+  "ghcr.io/devcontainers/features/go:1.2": {},
+  "ghcr.io/devcontainers/features/go:1.2.3": {},
+  "ghcr.io/devcontainers/features/go:latest": {}
+}
+```
+
+Omitting a version tag is equivalent to `:latest`. Tooling will not republish a Feature at a version that already exists, but it always updates the major and minor floating tags on every release.
+
+## Passing options to a Feature
+
+The value of each Feature entry is an options object. Option keys and their valid values are defined in the Feature's own `devcontainer-feature.json`. You can pass a `string` or `boolean` value for each option.
+
+```json
+"features": {
+  "ghcr.io/devcontainers/features/python:1": {
+    "version": "3.11",
+    "pip": true,
+    "optimize": false
+  }
+}
+```
+
+### Shorthand string syntax
+
+When you only need to set the `version` option, you can provide a plain string as the Feature value instead of an object. The two forms below are equivalent:
+
+<CodeGroup>
+
+```json shorthand
+"features": {
+  "ghcr.io/devcontainers/features/go:1": "1.21"
+}
+```
+
+```json expanded
+"features": {
+  "ghcr.io/devcontainers/features/go:1": {
+    "version": "1.21"
+  }
+}
+```
+
+</CodeGroup>
+
+## Controlling installation order
+
+By default, a supporting tool determines the installation order automatically. You can override it with `overrideFeatureInstallOrder` in `devcontainer.json`, providing Feature IDs in descending priority:
+
+```json
+{
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:1": {},
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers/features/python:1": {}
+  },
+  "overrideFeatureInstallOrder": [
+    "ghcr.io/devcontainers/features/common-utils",
+    "ghcr.io/devcontainers/features/node"
+  ]
+}
+```
+
+Features listed first in the array are given higher priority and will be installed earlier, as long as their own dependencies allow it.
+
+<Warning>
+  `overrideFeatureInstallOrder` must not produce an order that contradicts the dependency graph declared by the Features themselves. If it does, the supporting tool will fail the build.
+</Warning>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Author a Feature" icon="pen-to-square" href="/features/authoring">
+    Learn the folder structure, metadata schema, and option resolution for writing your own Feature.
+  </Card>
+  <Card title="Distribute a Feature" icon="cloud-arrow-up" href="/features/distribution">
+    Publish your Feature to an OCI registry and make it available to the community.
+  </Card>
+</CardGroup>

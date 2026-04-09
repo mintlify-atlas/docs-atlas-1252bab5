@@ -1,0 +1,170 @@
+---
+title: "Best practices for authoring Dev Container Features"
+description: "Follow these best practices when authoring Dev Container Features to ensure they are reliable, portable, and easy to maintain across environments."
+---
+
+Hundreds of Dev Container Features have been contributed by the community since the Feature format was introduced. The patterns that have emerged — and the ones that have caused the most friction — provide a clear set of recommendations for anyone writing a Feature today. This guide covers testing, idempotency, OS detection, handling non-root users, and building resilient installation paths.
+
+## Test with the `devcontainer features test` command
+
+The Dev Container CLI ships a `devcontainer features test` command specifically designed to help Feature authors validate their work before publishing. Run it against your Feature to catch issues early.
+
+```bash
+devcontainer features test --workspace-folder . --features <featureName>
+```
+
+You can test against specific base images using the `--base-image` flag, or define named [scenarios](https://github.com/devcontainers/cli/blob/main/docs/features/test.md#scenarios) for more complex test cases. The [feature-starter repo](https://github.com/devcontainers/feature-starter) includes working examples of both.
+
+A GitHub Actions matrix workflow that tests a Feature against multiple base images:
+
+```yaml .github/workflows/test.yml
+name: "Test Features matrixed with a set of base images"
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      matrix:
+        features: [
+            "anaconda",
+            "aws-cli",
+            "azure-cli"
+        ]
+        baseImage:
+          [
+            "ubuntu:bionic",
+            "ubuntu:focal",
+            "ubuntu:jammy",
+            "debian:11",
+            "debian:12",
+            "mcr.microsoft.com/devcontainers/base:ubuntu",
+            "mcr.microsoft.com/devcontainers/base:debian"
+          ]
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: "Install latest devcontainer CLI"
+        run: npm install -g @devcontainers/cli
+
+      - name: "Generating tests for '${{ matrix.features }}' against '${{ matrix.baseImage }}'"
+        run: devcontainer features test --skip-scenarios -f ${{ matrix.features }} -i ${{ matrix.baseImage }}
+```
+
+## Write idempotent install scripts
+
+The most useful Features can be installed multiple times with different options without breaking the environment. This matters because Feature dependencies can result in the same Feature being installed more than once during a single container build.
+
+For Features that install a versioned tool, design your install script to handle multiple concurrent versions. If the tool has a version manager (like `SDKMAN` for Java or `rvm` for Ruby), install the version manager and use it to install the requested version. When no version manager exists, install each version to a well-known path and symlink the active version onto the `PATH`.
+
+You can extend the `PATH` using `containerEnv` in `devcontainer-feature.json`:
+
+```json devcontainer-feature.json
+"containerEnv": {
+    "PATH": "/usr/local/myTool/bin:${PATH}"
+}
+```
+
+<Tip>
+  The `devcontainer features test` command includes a mode that attempts to install a Feature multiple times. Use it to verify that your Feature handles repeated installation gracefully.
+</Tip>
+
+## Detect the platform and OS
+
+Most Features target a subset of possible base images. A Feature that assumes `apt-get` is available will fail silently or confusingly on Alpine. Include an explicit OS check and print a clear error message when the base image is not supported.
+
+```bash install.sh
+# Source /etc/os-release to get OS info
+. /etc/os-release
+# Store host architecture
+architecture="$(dpkg --print-architecture)"
+
+DOCKER_MOBY_ARCHIVE_VERSION_CODENAMES="buster bullseye focal bionic xenial"
+if [[ "${DOCKER_MOBY_ARCHIVE_VERSION_CODENAMES}" != *"${VERSION_CODENAME}"* ]]; then
+    echo "Unsupported distribution version '${VERSION_CODENAME}'."
+    echo "Supported distributions include: ${DOCKER_MOBY_ARCHIVE_VERSION_CODENAMES}"
+    exit 1
+fi
+```
+
+If you need to support Alpine or other distributions that may not have `bash` installed, use `/bin/sh` for a minimal bootstrap script that installs `bash` before delegating to your main install script:
+
+```sh install.sh
+#!/bin/sh
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo 'Script must be run as root. Use sudo, su, or add "USER root" to your Dockerfile before running this script.'
+    exit 1
+fi
+
+# If we're using Alpine, install bash before executing
+. /etc/os-release
+if [ "${ID}" = "alpine" ]; then
+    apk add --no-cache bash
+fi
+
+exec /bin/bash "$(dirname $0)/main.sh" "$@"
+exit $?
+```
+
+## Handle non-root users correctly
+
+Feature install scripts run as `root`, but the developer inside the container typically runs as a non-root `remoteUser`. Files placed in root-owned directories may not be accessible to that user at runtime.
+
+The Dev Container spec injects several environment variables during the build to help you handle this. Use `$_REMOTE_USER` and `$_REMOTE_USER_HOME` to install files into locations that the final user can access:
+
+```bash install.sh
+# Install tool in effective remoteUser's bin folder
+mkdir -p "$_REMOTE_USER_HOME/bin"
+curl $TOOL_DOWNLOAD_LINK -o "$_REMOTE_USER_HOME/bin/$TOOL"
+chown $_REMOTE_USER:$_REMOTE_USER "$_REMOTE_USER_HOME/bin/$TOOL"
+chmod 755 "$_REMOTE_USER_HOME/bin/$TOOL"
+```
+
+See the full list of injected [user env variables](https://containers.dev/implementors/features/#user-env-var) in the spec.
+
+## Implement redundant installation paths
+
+Most Features have upstream dependencies — download URLs, GPG keys, package repositories — that can change without warning. A Feature that relies on a single installation path will break when that source changes.
+
+Where possible, implement a fallback. For example, a Feature that installs `go` might first try the upstream package manager and fall back to downloading a GitHub release. Pair this with scenario tests that force each installation path to run independently so you catch regressions in any path before users do.
+
+<Note>
+  Writing scenario tests for each installation path is the single most effective way to catch breakage from upstream changes before your users do.
+</Note>
+
+## Summary
+
+<AccordionGroup>
+  <Accordion title="Test thoroughly before publishing">
+    Use `devcontainer features test` with multiple base images and define scenario tests for each distinct installation path your Feature supports.
+  </Accordion>
+  <Accordion title="Make your Feature idempotent">
+    Design `install.sh` to handle being run multiple times with different option values. Use version managers or well-known install paths with symlinks to manage multiple concurrent versions.
+  </Accordion>
+  <Accordion title="Detect the OS and fail clearly">
+    Source `/etc/os-release` early and exit with a descriptive error if the base image is not supported. If you need to support Alpine, use a `/bin/sh` bootstrap to install `bash` first.
+  </Accordion>
+  <Accordion title="Respect the non-root user">
+    Use `$_REMOTE_USER` and `$_REMOTE_USER_HOME` when installing files that the developer needs to access at runtime.
+  </Accordion>
+  <Accordion title="Build in fallback installation strategies">
+    Implement multiple installation paths and write scenario tests for each, so upstream changes don't silently break your Feature for all users.
+  </Accordion>
+</AccordionGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Author and publish a Feature" icon="rocket" href="/guides/author-a-feature">
+    Start from scratch with the Feature authoring quickstart.
+  </Card>
+  <Card title="Keep Features updated with Dependabot" icon="shield-halved" href="/guides/dependabot">
+    Automate version updates for Features you depend on.
+  </Card>
+</CardGroup>

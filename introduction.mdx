@@ -1,0 +1,78 @@
+---
+title: "Development Containers: an open spec for dev environments"
+description: "The Development Container Specification defines how to enrich containers with metadata for consistent, reproducible development environments."
+---
+
+A development container (or dev container for short) lets you use a container as a full-featured development environment. It can run an application, isolate the tools, libraries, and runtimes needed to work with a codebase, and support continuous integration and testing — all from a single, version-controlled configuration file.
+
+## What is the Development Container Specification?
+
+The Development Container Specification defines a structured metadata format that tools can use to store the configuration required to develop inside local or cloud-based containerized environments. Rather than creating yet another orchestrator format, the spec enriches existing formats — such as Dockerfiles and Docker Compose files — with development-specific settings, tools, and configuration.
+
+The first and primary format in the spec is `devcontainer.json`: a JSON with Comments (JSONC) file you place in your repository. When a supporting tool detects this file, it uses the metadata to build and configure your dev container automatically.
+
+Beyond `devcontainer.json`, the spec also supports storing metadata in [image labels](/spec/image-metadata) and in reusable, shareable units called [Dev Container Features](/features/overview). This means you can compose rich environments from pre-built building blocks, or share your own across teams and projects.
+
+## A minimal devcontainer.json
+
+You define your dev container by placing a `devcontainer.json` file at one of the following locations in your repository (listed in order of precedence):
+
+- `.devcontainer/devcontainer.json`
+- `.devcontainer.json`
+- `.devcontainer/<folder>/devcontainer.json`
+
+Here is a real-world example that references a prebuilt Go image and adds a Node.js Feature:
+
+```json .devcontainer/devcontainer.json
+{
+  "name": "Go",
+  "image": "mcr.microsoft.com/devcontainers/go:1",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {}
+  },
+  "postCreateCommand": "go mod download"
+}
+```
+
+You can also reference an image directly when using a prebuilt image that already contains Dev Container metadata in its labels:
+
+```json .devcontainer/devcontainer.json
+{
+  "image": "mcr.microsoft.com/devcontainers/go:1"
+}
+```
+
+## Key use cases
+
+Dev containers support three primary use cases:
+
+**Local development** — Open a project in any supporting editor (VS Code, JetBrains, and others) and the tool automatically builds and connects to your dev container. Every team member works in an identical environment.
+
+**Remote and cloud development** — Dev containers run in private or public clouds through services like GitHub Codespaces. The same `devcontainer.json` that works locally also works remotely.
+
+**Continuous integration** — The open-source CLI reference implementation and a GitHub Action let you reuse your dev container configuration in CI pipelines, so your test environment matches your development environment exactly.
+
+## Development vs. production containers
+
+A dev container defines the environment in which you develop your application — before you are ready to deploy. While development and deployment containers may look similar, you typically want to include additional tools in a development image (debuggers, linters, test runners) that you would not ship to production.
+
+<Note>
+  Dev container metadata travels with your source code in `devcontainer.json`. This keeps your environment definition version-controlled and shareable, without coupling it to any specific machine or cloud service.
+</Note>
+
+## Explore further
+
+<CardGroup cols={2}>
+  <Card title="Overview" icon="book-open" href="/overview">
+    Understand the full scope of the spec: metadata formats, orchestration options, and how tools implement it.
+  </Card>
+  <Card title="Get started with the CLI" icon="terminal" href="/getting-started/cli">
+    Install the Dev Container CLI and run your first dev container in minutes.
+  </Card>
+  <Card title="Dev Container Features" icon="puzzle-piece" href="/features/overview">
+    Add pre-built tools and runtimes to any container with a single line in your devcontainer.json.
+  </Card>
+  <Card title="Supporting tools" icon="wrench" href="/supporting-tools">
+    See the editors, cloud services, and CI systems that implement the Dev Container Specification.
+  </Card>
+</CardGroup>

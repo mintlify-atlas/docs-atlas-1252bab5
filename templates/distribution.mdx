@@ -1,0 +1,208 @@
+---
+title: "Distribute and publish Dev Container Templates to OCI"
+description: "Publish Dev Container Templates to OCI registries using the Dev Container CLI, devcontainer-collection.json, and versioning conventions from the spec."
+---
+
+Publishing a Dev Container Template makes it available to any supporting tool by pushing it as an OCI artifact to a registry such as the GitHub Container Registry. The distribution model is self-service: you own your repository, manage your own versioning, and publish directly — no central approval process required.
+
+<Tip>
+  The [devcontainers/template-starter](https://github.com/devcontainers/template-starter) repository gives you a ready-made GitHub Actions workflow to publish Templates automatically on every release.
+</Tip>
+
+## Source code structure
+
+Store your Template source in a git repository. You can include multiple Templates in a single repository — this set is called a **collection** and shares a namespace (e.g. `owner/repo`).
+
+<Note>
+  Keep Templates and [Features](/features/overview) in separate git repositories. Mixing them in one repo is not supported.
+</Note>
+
+Each Template lives in a named subdirectory under `src/`. The subdirectory name must match the `id` field in the Template's `devcontainer-template.json`. Only files within a Template's subdirectory are packaged and published; files outside of it are ignored.
+
+```
+.
+├── README.md
+└── src/
+    ├── dotnet/
+    │   ├── devcontainer-template.json
+    │   └── .devcontainer.json
+    ├── docker-from-docker/
+    │   ├── devcontainer-template.json
+    │   └── .devcontainer/
+    │       ├── devcontainer.json
+    │       └── Dockerfile
+    └── go-postgres/
+        ├── devcontainer-template.json
+        └── .devcontainer/
+            ├── devcontainer.json
+            ├── docker-compose.yml
+            └── Dockerfile
+```
+
+## Versioning
+
+Each Template is versioned independently using [semantic versioning](https://semver.org/). Update the `version` field in the Template's `devcontainer-template.json` to trigger a new release.
+
+- Tooling skips republishing if the exact version already exists in the registry.
+- Tooling republishes major and minor version tags so they always point to the latest compatible release (e.g. `:1` and `:1.2` update when you publish `1.2.3`).
+
+## Packaging
+
+Templates are distributed as tarballs. The tarball contains all files in the Template's subdirectory, including `devcontainer-template.json`, `.devcontainer.json` (or `.devcontainer/devcontainer.json`), and any other files you placed there.
+
+The tarball follows this naming convention:
+
+```text
+devcontainer-template-<id>.tgz
+```
+
+For example, a Template with `"id": "go"` produces `devcontainer-template-go.tgz`.
+
+### `devcontainer-collection.json`
+
+When you publish a collection, tooling auto-generates a `devcontainer-collection.json` index file. It contains metadata for every Template in the collection and is always tagged as `latest` in the registry.
+
+<ResponseField name="sourceInformation" type="object">
+  Metadata from the packaging tool, such as repository URL and run details.
+</ResponseField>
+
+<ResponseField name="templates" type="array">
+  The complete list of Templates in this collection. Each entry is the full contents of the corresponding `devcontainer-template.json`.
+</ResponseField>
+
+## OCI registry distribution
+
+An OCI registry that implements the [OCI Artifact Distribution Specification](https://github.com/opencontainers/distribution-spec) is the primary distribution channel for Templates.
+
+Each Template tarball is pushed to the registry using the naming pattern:
+
+```text
+<registry>/<namespace>/<id>[:<version>]
+```
+
+The namespace is a globally unique identifier for your collection — typically your repository's `owner/repo` path. The namespace for Templates must be different from the namespace you use for Features.
+
+### Pushing a Template tarball
+
+The example below uses [`oras`](https://oras.land/) to show the OCI operations directly. In practice, use the Dev Container CLI or the Dev Container Publish GitHub Action — they handle this for you.
+
+```bash
+# Push go template at version 1.2.3 with major, minor, patch, and latest tags
+REGISTRY=ghcr.io
+NAMESPACE=devcontainers/templates
+TEMPLATE=go
+ARTIFACT_PATH=devcontainer-template-go.tgz
+
+for VERSION in 1 1.2 1.2.3 latest
+do
+  oras push ${REGISTRY}/${NAMESPACE}/${TEMPLATE}:${VERSION} \
+    --config /dev/null:application/vnd.devcontainers \
+    ./${ARTIFACT_PATH}:application/vnd.devcontainers.layer.v1+tar
+done
+```
+
+The custom media types `application/vnd.devcontainers` (config) and `application/vnd.devcontainers.layer.v1+tar` (layer) identify the artifact as a Dev Container Template.
+
+### Pushing the collection index
+
+Push the auto-generated `devcontainer-collection.json` to the registry at the collection's namespace with no Template name appended:
+
+```bash
+# Push the collection index for ghcr.io/devcontainers/templates
+REGISTRY=ghcr.io
+NAMESPACE=devcontainers/templates
+
+oras push ${REGISTRY}/${NAMESPACE}:latest \
+  --config /dev/null:application/vnd.devcontainers \
+  ./devcontainer-collection.json:application/vnd.devcontainers.collection.layer.v1+json
+```
+
+## Using the Dev Container CLI
+
+The Dev Container CLI provides a high-level `templates publish` command that handles packaging, tagging, and pushing all Templates in a `src/` directory for you.
+
+### Publishing Templates
+
+Given a repository laid out according to the source code structure above, run:
+
+```bash
+GITHUB_TOKEN="$CR_PAT" devcontainer templates publish \
+  -r ghcr.io \
+  -n devcontainers/templates \
+  ./src
+```
+
+This publishes every Template found under `./src` to `ghcr.io` with the namespace prefix `devcontainers/templates`.
+
+To see all available options:
+
+```bash
+devcontainer templates publish --help
+```
+
+### Applying a Template
+
+To apply a published Template to a local directory, use `templates apply`:
+
+```bash
+devcontainer templates apply \
+  -t 'ghcr.io/devcontainers/templates/color' \
+  -a '{"favorite": "red"}'
+```
+
+The `-t` flag specifies the Template reference and the `-a` flag passes option values as a JSON object, bypassing the interactive prompt.
+
+## Authentication methods
+
+You need write access to the registry to publish Templates. The CLI supports the following authentication methods:
+
+<AccordionGroup>
+  <Accordion title="Docker config file (~/.docker/config.json)">
+    Store credentials in `$HOME/.docker/config.json` using the [standard docker config format](https://www.systutorials.com/docs/linux/man/5-docker-config-json/). Running `docker login` may write this file automatically, depending on your operating system.
+
+    ```json
+    {
+      "auths": {
+        "ghcr.io": {
+          "auth": "<base64-encoded-credentials>"
+        }
+      }
+    }
+    ```
+
+    <Warning>
+      OS-specific Docker credential helpers (such as the Docker Desktop credential helper) are not currently recognized by the Dev Container CLI. Use the config file approach or the environment variable instead.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="DEVCONTAINERS_OCI_AUTH environment variable">
+    Set the `DEVCONTAINERS_OCI_AUTH` environment variable with credentials for one or more registries:
+
+    ```bash
+    DEVCONTAINERS_OCI_AUTH=service1|user1|token1,service2|user2|token2
+    ```
+
+    Each entry is `<service>|<username>|<token>`, separated by commas for multiple registries.
+  </Accordion>
+
+  <Accordion title="GitHub Actions (ghcr.io)">
+    Use the `devcontainers/action` GitHub Action in your workflow. It handles the `GITHUB_TOKEN` credential automatically, so you only need to grant the workflow `write:packages` permission.
+
+    ```yaml
+    permissions:
+      contents: read
+      packages: write
+    ```
+  </Accordion>
+
+  <Accordion title="GITHUB_TOKEN (ghcr.io)">
+    Provide a `GITHUB_TOKEN` with `write:packages` permission directly:
+
+    ```bash
+    GITHUB_TOKEN="$CR_PAT" devcontainer templates publish \
+      -r ghcr.io \
+      -n your-namespace/templates \
+      ./src
+    ```
+  </Accordion>
+</AccordionGroup>

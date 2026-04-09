@@ -1,0 +1,100 @@
+---
+title: "Keep dev container Features updated with Dependabot"
+description: "Configure GitHub Dependabot to automatically open pull requests when new versions of Dev Container Features or base images are released."
+---
+
+Dev Container Features are versioned packages, and like any dependency they can fall behind as new versions are released. GitHub Dependabot now supports the `devcontainers` package ecosystem, which means it can automatically open pull requests to update Feature versions in your `devcontainer.json` — and update the associated lockfile if one exists. This guide shows you how to opt in and what to expect.
+
+## Enable Dependabot for dev containers
+
+Add a `.github/dependabot.yml` file to any repository that contains one or more `devcontainer.json` files. The minimum configuration to enable weekly Feature updates looks like this:
+
+```yaml .github/dependabot.yml
+# To get started with Dependabot version updates, you'll need to specify which
+# package ecosystems to update and where the package manifests are located.
+# Please see the documentation for all configuration options:
+# https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
+
+version: 2
+updates:
+  - package-ecosystem: "devcontainers"
+    directory: "/"
+    schedule:
+      interval: weekly
+```
+
+- `package-ecosystem: "devcontainers"` tells Dependabot to scan for `devcontainer.json` files.
+- `directory: "/"` is the root to search from. Dependabot finds dev container configurations in any [valid dev container location](https://containers.dev/implementors/spec/#devcontainerjson) under that root.
+- `schedule.interval` controls how often Dependabot checks for updates. Use `daily`, `weekly`, or `monthly`.
+
+<Note>
+  Dependabot version updates are free for all repositories on GitHub.com. See the [Dependabot version update docs](https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/about-dependabot-version-updates#supported-repositories-and-ecosystem) for the full list of configuration options.
+</Note>
+
+## What Dependabot updates
+
+Once configured, Dependabot scans your `devcontainer.json` files and opens pull requests to bump any publicly accessible Features to their latest published version. If your repository has a `.devcontainer-lock.json` lockfile, Dependabot updates that file in the same pull request.
+
+All `devcontainer.json` files found in valid dev container locations are updated together in a single pull request.
+
+## Example pull request diff
+
+A typical Dependabot PR updates the Feature version in `devcontainer.json` and regenerates the resolved hash and version in `.devcontainer-lock.json`:
+
+```diff
+---
+ .devcontainer-lock.json              | 8 ++++----
+ .devcontainer.json                   | 2 +-
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/.devcontainer-lock.json b/.devcontainer-lock.json
+index 324582b..a3868d9 100644
+--- a/.devcontainer-lock.json
++++ b/.devcontainer-lock.json
+@@ -1,9 +1,9 @@
+ {
+   "features": {
+-    "ghcr.io/devcontainers/features/docker-in-docker:1": {
+-      "version": "1.0.9",
+-      "resolved": "ghcr.io/devcontainers/features/docker-in-docker@sha256:b4c04ba88371a8ec01486356cce10eb9fe8274627d8d170aaec87ed0d333080d",
+-      "integrity": "sha256:b4c04ba88371a8ec01486356cce10eb9fe8274627d8d170aaec87ed0d333080d"
++    "ghcr.io/devcontainers/features/docker-in-docker:2": {
++      "version": "2.7.1",
++      "resolved": "ghcr.io/devcontainers/features/docker-in-docker@sha256:f6a73ee06601d703db7d95d03e415cab229e78df92bb5002e8559bcfc047fec6",
++      "integrity": "sha256:f6a73ee06601d703db7d95d03e415cab229e78df92bb5002e8559bcfc047fec6"
+     }
+   }
+ }
+diff --git a/.devcontainer.json b/.devcontainer.json
+index e9d9af5..9eb9165 100644
+--- a/.devcontainer.json
++++ b/.devcontainer.json
+@@ -1,6 +1,6 @@
+ {
+     "image": "mcr.microsoft.com/devcontainers/base:jammy",
+     "features": {
+-        "ghcr.io/devcontainers/features/docker-in-docker:1": {}
++        "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+     }
+ }
+```
+
+<Tip>
+  Review these pull requests before merging. Major version bumps (e.g., `:1` to `:2`) may include breaking changes. Check the Feature's changelog before accepting the update.
+</Tip>
+
+## Requirements
+
+- Features must be publicly accessible. Dependabot cannot update Features that require authentication to download.
+- Your repository must be on GitHub.com.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Author a Feature" icon="puzzle-piece" href="/guides/author-a-feature">
+    Learn how to create and publish your own Dev Container Features.
+  </Card>
+  <Card title="Feature best practices" icon="star" href="/guides/feature-best-practices">
+    Follow best practices to make your Features reliable and easy to maintain.
+  </Card>
+</CardGroup>

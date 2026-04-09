@@ -1,0 +1,130 @@
+---
+title: "Prebuild and cache your dev container images with CI"
+description: "Speed up dev container startup times by prebuilding images with the Dev Container CLI and pushing them to a container registry via GitHub Actions."
+---
+
+Once your dev container is configured and working, the next optimization is to prebuild the image. Instead of building the container from scratch every time — on a new machine, in CI, or when a teammate onboards — you build it once, push the result to a registry, and let everyone pull the prebuilt image directly. This guide explains what prebuilding is, how to automate it with GitHub Actions, and how to reference a prebuilt image in your projects.
+
+## What is prebuilding?
+
+Prebuilding means running the container build process ahead of time and storing the resulting image in a container registry. When a developer opens the dev container, their tool pulls the prebuilt image instead of rebuilding from a `Dockerfile` or installing Features on the fly. The result is dramatically faster startup, especially for containers with many dependencies.
+
+<Note>
+  [GitHub Codespaces prebuilds](https://docs.github.com/en/codespaces/prebuilding-your-codespaces/about-github-codespaces-prebuilds) work similarly but are specific to the Codespaces service. This guide covers the general approach using the Dev Container CLI and GitHub Actions, which works with any supporting tool.
+</Note>
+
+## Prebuild your image
+
+<Steps>
+  <Step title="Install the Dev Container CLI">
+    The Dev Container CLI is the reference implementation for building and running dev containers. Install it globally via npm:
+
+    ```bash
+    npm install -g @devcontainers/cli
+    ```
+  </Step>
+
+  <Step title="Build and push the image">
+    Run `devcontainer build` from your project root. Pass `--push true` to push the resulting image to your chosen registry after the build completes:
+
+    ```bash
+    devcontainer build --workspace-folder . --push true --image-name <my_image_name>:<optional_image_version>
+    ```
+
+    You can push to any registry that supports OCI images, including:
+    - [GitHub Container Registry (GHCR)](https://docs.github.com/packages/working-with-a-github-packages-registry/working-with-the-container-registry#pushing-container-images)
+    - [Azure Container Registry](https://learn.microsoft.com/azure/container-registry/container-registry-get-started-docker-cli?tabs=azure-cli)
+    - [Docker Hub](https://docs.docker.com/engine/reference/commandline/push)
+  </Step>
+
+  <Step title="Reference the prebuilt image">
+    Once the image is published, reference it in your `devcontainer.json` with a plain `image` property:
+
+    ```json .devcontainer/devcontainer.json
+    {
+        "image": "ghcr.io/<owner>/<repo>:latest"
+    }
+    ```
+
+    Any dev container-aware tool — VS Code, GitHub Codespaces, the CLI — will pull this image directly without rebuilding. You can still layer in Features, lifecycle scripts, and customizations on top of the prebuilt image.
+  </Step>
+
+  <Step title="Automate with GitHub Actions">
+    Manually running `devcontainer build` works for one-off builds, but the best practice is to automate rebuilds whenever you change the dev container configuration. The Dev Container team publishes an official [GitHub Action](https://github.com/marketplace/actions/dev-container-build-and-run-action) for this purpose.
+
+    A minimal workflow that rebuilds and pushes on every change to `.devcontainer/`:
+
+    ```yaml .github/workflows/devcontainer-build.yml
+    name: Build and push dev container image
+
+    on:
+      push:
+        branches:
+          - main
+        paths:
+          - '.devcontainer/**'
+      workflow_dispatch:
+
+    jobs:
+      build:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+
+          - name: Log in to GHCR
+            uses: docker/login-action@v3
+            with:
+              registry: ghcr.io
+              username: ${{ github.actor }}
+              password: ${{ secrets.GITHUB_TOKEN }}
+
+          - name: Build and push dev container image
+            uses: devcontainers/ci@v0.3
+            with:
+              imageName: ghcr.io/${{ github.repository }}
+              cacheFrom: ghcr.io/${{ github.repository }}
+              push: always
+    ```
+
+    <Tip>
+      An equivalent [Azure DevOps task](https://marketplace.visualstudio.com/items?itemName=devcontainers.ci) is also available if your team uses Azure Pipelines.
+    </Tip>
+  </Step>
+</Steps>
+
+## Real-world examples
+
+The following projects illustrate two common prebuilding patterns:
+
+<CardGroup cols={2}>
+  <Card title="Kubernetes dev container" icon="dharmachakra" href="https://github.com/craiglpeters/kubernetes-devcontainer">
+    A fork of the Kubernetes repo that prebuilds its dev container to GHCR on every change, so contributors across all forks get a fast, consistent environment by referencing `ghcr.io/craiglpeters/kubernetes-devcontainer:latest`.
+  </Card>
+  <Card title="devcontainers/images" icon="layer-group" href="https://github.com/devcontainers/images">
+    The official dev container spec images. Each language image is defined in its own folder, built via GitHub Actions, and published to MCR — for example, `mcr.microsoft.com/devcontainers/python`.
+  </Card>
+</CardGroup>
+
+## Benefits of prebuilding
+
+- **Faster startup** — pull a cached image instead of building from scratch on every new machine.
+- **Simpler `devcontainer.json`** — your end-user config can be as minimal as a single `image` property.
+- **Version pinning** — tag prebuilt images to specific versions for improved supply-chain security and reproducibility.
+- **Separates concerns** — prebuilt images can carry shared dependencies; project-specific or user-specific settings stay in the end-user `devcontainer.json`.
+
+## Tips
+
+- The spec supports [image labels](https://containers.dev/implementors/reference#labels) for embedding dev container metadata directly in prebuilt images. Settings are picked up automatically when the image is referenced in a `FROM` statement or a Docker Compose file.
+- You can use multi-stage Dockerfiles to create a production image from your dev container. Start with your production base, then add development-only layers using Features.
+- Dev container [Templates](https://containers.dev/implementors/templates) can be as simple as a `devcontainer.json` pointing at a prebuilt image and a `devcontainer-template.json` descriptor — a lightweight way to share reusable environment definitions.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Use a Dockerfile" icon="file-code" href="/guides/using-dockerfile">
+    Learn how to configure Dockerfiles and Docker Compose files in your dev container.
+  </Card>
+  <Card title="Run dev containers in GitLab CI" icon="gitlab" href="/guides/ci-gitlab">
+    Apply the same prebuilt image approach to GitLab CI pipelines.
+  </Card>
+</CardGroup>

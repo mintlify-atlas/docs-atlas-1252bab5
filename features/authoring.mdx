@@ -1,0 +1,370 @@
+---
+title: "Author a Dev Container Feature: schema and scripts"
+description: "Learn the folder structure, devcontainer-feature.json schema, install.sh execution model, and option resolution to build your own Dev Container Features."
+---
+
+A Dev Container Feature is a self-contained folder with two required files: a `devcontainer-feature.json` metadata file and an `install.sh` entrypoint script. You can include additional helper files — they are all packaged and distributed alongside the required pair. This guide walks you through every part of the authoring contract so you can build a Feature that works reliably across different base images and tooling implementations.
+
+## Folder structure
+
+Each Feature lives in its own directory. The directory name must match the `id` field in `devcontainer-feature.json`.
+
+```
+feature/
+├── devcontainer-feature.json   # required — metadata and schema
+├── install.sh                  # required — installation entrypoint
+└── (any other files)           # optional — packaged alongside the above
+```
+
+<Note>
+  If you are hosting multiple Features in one repository, place each Feature directory under a shared `src/` folder. See the [distribution guide](/features/distribution#source-code-structure) for the recommended multi-Feature layout.
+</Note>
+
+## devcontainer-feature.json
+
+The `devcontainer-feature.json` file captures everything a supporting tool needs to understand and install your Feature. The `id`, `version`, and `name` properties are required; all others are optional.
+
+### Required properties
+
+<ParamField path="id" type="string" required>
+  Unique identifier for the Feature within its repository namespace. Must match the name of the directory containing this file.
+</ParamField>
+
+<ParamField path="version" type="string" required>
+  Semantic version of the Feature, for example `1.0.0`. Tooling uses this to determine whether to republish.
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Human-readable display name shown in tooling UIs and discovery surfaces.
+</ParamField>
+
+### Full property reference
+
+| Property | Type | Description |
+|---|---|---|
+| `id` | string | **Required.** Identifier matching the Feature's directory name. |
+| `version` | string | **Required.** Semantic version, e.g. `1.0.0`. |
+| `name` | string | **Required.** Human-friendly display name. |
+| `description` | string | Description of the Feature. |
+| `documentationURL` | string | URL to the Feature's documentation. |
+| `licenseURL` | string | URL to the Feature's license. |
+| `keywords` | array | Search terms for discovery. |
+| `options` | object | Map of option IDs to their configuration. See [the options property](#the-options-property). |
+| `containerEnv` | object | Name-value pairs to set or override container environment variables. |
+| `privileged` | boolean | Enables privileged mode on the container (required for things like Docker-in-Docker). |
+| `init` | boolean | Adds a tiny init process (`--init`) to the container. |
+| `capAdd` | array | Container capabilities to add. |
+| `securityOpt` | array | Container security options to set. |
+| `entrypoint` | string | Script that runs at container startup. |
+| `customizations` | object | Product-specific properties, namespaced by tool. |
+| `dependsOn` | object | Hard dependencies that must be installed before this Feature. See [installation order](#installation-order). |
+| `installsAfter` | array | Soft ordering hints — Feature IDs that should run before this one if they are already queued. |
+| `legacyIds` | array | Previous IDs for this Feature, used to support renames. |
+| `deprecated` | boolean | Marks the Feature as deprecated and unsupported. |
+| `mounts` | object | Additional mounts to add to the container, using Docker `--mount` syntax. |
+
+### Example: a complete devcontainer-feature.json
+
+```json devcontainer-feature.json
+{
+  "id": "python",
+  "version": "1.2.0",
+  "name": "Python",
+  "description": "Installs a version of Python along with pip and common packages.",
+  "documentationURL": "https://github.com/devcontainers/features/tree/main/src/python",
+  "keywords": ["python", "pip"],
+  "options": {
+    "version": {
+      "type": "string",
+      "enum": ["latest", "3.11", "3.10", "3.9", "3.8"],
+      "default": "latest",
+      "description": "Select a Python version to install."
+    },
+    "pip": {
+      "type": "boolean",
+      "default": true,
+      "description": "Installs pip."
+    },
+    "optimize": {
+      "type": "boolean",
+      "default": true,
+      "description": "Optimize the Python installation."
+    }
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ]
+}
+```
+
+## The options property
+
+The `options` object maps option IDs to their configuration. Each option ID becomes an all-caps environment variable available to `install.sh` at build time.
+
+```json
+{
+  "options": {
+    "optionIdGoesHere": {
+      "type": "string",
+      "description": "Description of the option",
+      "proposals": ["value1", "value2"],
+      "default": "value1"
+    }
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `optionId` | string | Becomes the environment variable name (uppercased). |
+| `optionId.type` | string | `"boolean"` or `"string"`. |
+| `optionId.proposals` | array | Suggested values; free-form input is also allowed. Omit when using `enum`. |
+| `optionId.enum` | array | Strict list of allowed values; free-form input is not allowed. Omit when using `proposals`. |
+| `optionId.default` | string or boolean | Value used when the user does not provide one. |
+| `optionId.description` | string | Human-readable description of the option. |
+
+## The install.sh script
+
+The `install.sh` script is the installation entrypoint. Supporting tools execute it as `root` during the container image build, which lets you install OS packages, create files anywhere in the filesystem, and switch to another user context with `su`.
+
+<Steps>
+  <Step title="Set the execute bit">
+    The file must be executable. Set the bit before committing: `chmod +x install.sh`.
+  </Step>
+  <Step title="Declare your shell">
+    Use a shell available in your target distributions. For Debian/Ubuntu, use `#!/usr/bin/env bash`. For Alpine, use `#!/bin/sh`.
+  </Step>
+  <Step title="Read your options">
+    Options are sourced into the script's environment automatically. Access them as environment variables named after your option IDs in all caps.
+  </Step>
+  <Step title="Support multiple architectures">
+    Use `uname -m` or `dpkg --print-architecture` to detect the current architecture and install the correct binary for `x86_64` and `arm64` (Apple Silicon) hosts.
+  </Step>
+</Steps>
+
+### Example install.sh using option variables
+
+```bash install.sh
+#!/usr/bin/env bash
+set -e
+
+echo "Version is $VERSION"
+echo "Pip?     $PIP"
+echo "Optimize? $OPTIMIZE"
+
+# Install the requested Python version
+apt-get update && apt-get install -y "python${VERSION}"
+```
+
+## Option resolution
+
+A supporting tool resolves your Feature's `options` by combining user-provided values with the defaults declared in `devcontainer-feature.json`. The resolved values are written to a `devcontainer-features.env` file and sourced before `install.sh` runs.
+
+Option IDs are transformed into environment variable names with the following rules applied in order:
+
+1. Replace any character that is not a word character or underscore with `_`.
+2. Replace any leading digits or underscores with `_`.
+3. Convert to uppercase.
+
+### Option resolution example
+
+Given this `options` block in `devcontainer-feature.json`:
+
+```json devcontainer-feature.json
+"options": {
+  "version": {
+    "type": "string",
+    "enum": ["latest", "3.10", "3.9", "3.8", "3.7", "3.6"],
+    "default": "latest",
+    "description": "Select a Python version to install."
+  },
+  "pip": {
+    "type": "boolean",
+    "default": true,
+    "description": "Installs pip."
+  },
+  "optimize": {
+    "type": "boolean",
+    "default": true,
+    "description": "Optimize the Python installation."
+  }
+}
+```
+
+And this reference in `devcontainer.json` (with `optimize` omitted):
+
+```json devcontainer.json
+"features": {
+  "ghcr.io/devcontainers/features/python:1": {
+    "version": "3.10",
+    "pip": false
+  }
+}
+```
+
+The environment file sourced into `install.sh` will contain:
+
+```bash devcontainer-features.env
+VERSION="3.10"
+PIP="false"
+OPTIMIZE="true"
+```
+
+`OPTIMIZE` falls back to its declared default of `true` because the user did not provide a value.
+
+## User environment variables
+
+Feature scripts run as `root` but often need to act on behalf of a non-root user. The following variables are injected automatically:
+
+| Variable | Description |
+|---|---|
+| `_REMOTE_USER` | The `remoteUser` configured in `devcontainer.json`. Falls back to `_CONTAINER_USER` if not set. |
+| `_CONTAINER_USER` | The container's primary user (`containerUser`, `USER` in Dockerfile, or the base image default). |
+| `_REMOTE_USER_HOME` | Home directory of `_REMOTE_USER`. |
+| `_CONTAINER_USER_HOME` | Home directory of `_CONTAINER_USER`. |
+
+Use `su ${_REMOTE_USER} -c "command"` when you need to run a command as the non-root user without requiring `sudo` in the base image.
+
+## Installation order
+
+By default, a supporting tool chooses the installation order automatically. Three mechanisms let you influence that order:
+
+<AccordionGroup>
+  <Accordion title="dependsOn — hard dependencies">
+    Declare Features that **must** be installed before yours. The dependency is added to the installation queue even if the user did not reference it in `devcontainer.json`. Dependencies are resolved recursively.
+
+    ```json devcontainer-feature.json
+    {
+      "name": "My Feature",
+      "id": "myFeature",
+      "version": "1.0.0",
+      "dependsOn": {
+        "ghcr.io/devcontainers/features/common-utils:1": {},
+        "ghcr.io/devcontainers/features/node:1": {
+          "version": "lts"
+        }
+      }
+    }
+    ```
+  </Accordion>
+  <Accordion title="installsAfter — soft ordering hints">
+    List Feature IDs that should run before yours **if they are already queued**. Unlike `dependsOn`, `installsAfter` does not add missing Features to the queue and is not evaluated recursively. Version tags and options are not supported here.
+
+    ```json devcontainer-feature.json
+    {
+      "name": "My Feature",
+      "id": "myFeature",
+      "version": "1.0.0",
+      "installsAfter": [
+        "ghcr.io/devcontainers/features/common-utils",
+        "ghcr.io/devcontainers/features/node"
+      ]
+    }
+    ```
+  </Accordion>
+  <Accordion title="overrideFeatureInstallOrder — user override">
+    Users can override Feature installation order in `devcontainer.json` by listing Feature IDs in descending priority. The first ID in the array is installed earliest, subject to its own dependency constraints.
+
+    ```json devcontainer.json
+    {
+      "overrideFeatureInstallOrder": [
+        "ghcr.io/devcontainers/features/common-utils",
+        "ghcr.io/devcontainers/features/node",
+        "ghcr.io/devcontainers/features/python"
+      ]
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Lifecycle hooks
+
+Your Feature can contribute commands that run at each stage of the container lifecycle. Declare them directly in `devcontainer-feature.json`:
+
+| Property | Runs when |
+|---|---|
+| `onCreateCommand` | Immediately after the container starts for the first time. |
+| `updateContentCommand` | When new source tree content is available (at least once; may repeat in cloud prebuilds). |
+| `postCreateCommand` | After `updateContentCommand`, once the container is assigned to a user. |
+| `postStartCommand` | Each time the container starts successfully. |
+| `postAttachCommand` | Each time a supporting tool attaches to the container. |
+
+Each property accepts a `string`, `array`, or `object` value — matching the same formats supported by `devcontainer.json` lifecycle commands. Commands contributed by Features always run **before** the user's own lifecycle commands in `devcontainer.json`.
+
+### Writing scripts to a persistent path
+
+A common pattern is to write a script to a known container path during `install.sh`, then reference that path in a lifecycle hook. This keeps the installation clean and separates build-time work from runtime work.
+
+<CodeGroup>
+
+```bash install.sh
+#!/usr/bin/env bash
+set -e
+
+SCRIPT_PATH="/usr/local/share/pull-git-lfs-artifacts.sh"
+
+tee "$SCRIPT_PATH" > /dev/null << 'EOF'
+#!/bin/sh
+set -e
+# pull LFS artifacts here...
+EOF
+
+chmod +x "$SCRIPT_PATH"
+```
+
+```json devcontainer-feature.json
+{
+  "id": "git-lfs",
+  "version": "1.1.0",
+  "name": "Git Large File Support (LFS)",
+  "postCreateCommand": "/usr/local/share/pull-git-lfs-artifacts.sh",
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ]
+}
+```
+
+</CodeGroup>
+
+## Renaming a Feature
+
+Renaming a Feature without breaking existing references requires updating the `legacyIds` property so that tools can resolve the old identifier to the new one.
+
+<Steps>
+  <Step title="Update the id and source folder">
+    Rename the source directory to match the new `id`, and update `id` (and optionally `name`, `documentationURL`) in `devcontainer-feature.json`.
+  </Step>
+  <Step title="Add the old id to legacyIds">
+    Add or update the `legacyIds` array to include the previously published `id`.
+
+    ```json devcontainer-feature.json
+    {
+      "id": "docker-outside-of-docker",
+      "version": "2.0.2",
+      "name": "Docker (Docker-outside-of-Docker)",
+      "legacyIds": ["docker-from-docker"]
+    }
+    ```
+  </Step>
+  <Step title="Increment the version">
+    Bump the semver version. Do not restart from `1.0.0` — continue from the last published version.
+  </Step>
+  <Step title="Republish">
+    Run `devcontainer features publish` (or equivalent) to push the updated Feature.
+  </Step>
+</Steps>
+
+<Warning>
+  Never restart versioning at `1.0.0` after a rename. Tooling tracks published versions by the semver string and will not republish a version that already exists. Always continue from the last published version number.
+</Warning>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Distribute a Feature" icon="cloud-arrow-up" href="/features/distribution">
+    Package your Feature as a tarball and publish it to an OCI registry.
+  </Card>
+  <Card title="Using Features" icon="puzzle-piece" href="/features/overview">
+    See how to reference Features in devcontainer.json, pass options, and pin versions.
+  </Card>
+</CardGroup>
